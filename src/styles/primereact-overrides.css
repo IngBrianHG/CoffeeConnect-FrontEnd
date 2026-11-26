@@ -1,0 +1,124 @@
+/* Shared, restrained tuning for PrimeReact controls; module CSS should only lay out domain content. */
+.p-button {
+  min-height: var(--button-height);
+  font-weight: 600;
+}
+
+.p-inputtext,
+.p-dropdown,
+.p-multiselect,
+.p-calendar .p-inputtext,
+.p-inputnumber-input,
+.p-password-input {
+  min-height: var(--control-height);
+}
+
+/* Lara 10 hardcodes indigo in component-state selectors, so theme variables alone
+   cannot recolor these interaction states. Keep the brand adaptation centralized. */
+.p-button:not(.p-button-secondary):not(.p-button-success):not(.p-button-info):not(.p-button-warning):not(.p-button-help):not(.p-button-danger):not(.p-button-contrast),
+.p-checkbox.p-highlight .p-checkbox-box,
+.p-radiobutton.p-highlight .p-radiobutton-box,
+.p-inputswitch.p-highlight .p-inputswitch-slider {
+  border-color: var(--color-brand);
+  background: var(--color-brand);
+}
+
+.p-button:not(.p-button-secondary):not(.p-button-success):not(.p-button-info):not(.p-button-warning):not(.p-button-help):not(.p-button-danger):not(.p-button-contrast):not(.p-button-outlined):not(.p-button-text) {
+  color: var(--color-text-inverse);
+}
+
+.p-button:not(:disabled):not(.p-button-secondary):not(.p-button-success):not(.p-button-info):not(.p-button-warning):not(.p-button-help):not(.p-button-danger):not(.p-button-contrast):not(.p-button-outlined):not(.p-button-text):hover {
+  border-color: var(--color-brand-hover);
+  background: var(--color-brand-hover);
+  color: var(--color-text-inverse);
+}
+
+.p-button:not(:disabled):not(.p-button-secondary):not(.p-button-success):not(.p-button-info):not(.p-button-warning):not(.p-button-help):not(.p-button-danger):not(.p-button-contrast):not(.p-button-outlined):not(.p-button-text):active {
+  border-color: #4b342c;
+  background: #4b342c;
+  color: var(--color-text-inverse);
+}
+
+.p-button.p-button-outlined:not(.p-button-secondary):not(.p-button-success):not(.p-button-info):not(.p-button-warning):not(.p-button-help):not(.p-button-danger):not(.p-button-contrast),
+.p-button.p-button-text:not(.p-button-secondary):not(.p-button-success):not(.p-button-info):not(.p-button-warning):not(.p-button-help):not(.p-button-danger):not(.p-button-contrast) {
+  background: transparent;
+  color: var(--color-brand);
+}
+
+.p-button.p-button-outlined:not(:disabled):not(.p-button-plain):hover,
+.p-button.p-button-text:not(:disabled):not(.p-button-plain):hover {
+  background: rgb(111 78 55 / 8%);
+  color: var(--color-brand-hover);
+}
+
+.p-button:focus,
+.p-button:focus-visible,
+.p-checkbox:not(.p-disabled) .p-checkbox-input:focus-visible + .p-checkbox-box,
+.p-radiobutton:not(.p-disabled) .p-radiobutton-input:focus-visible + .p-radiobutton-box,
+.p-inputswitch:not(.p-disabled) .p-inputswitch-input:focus-visible ~ .p-inputswitch-slider {
+  box-shadow: var(--cc-focus-ring);
+}
+
+.p-inputtext:enabled:focus,
+.p-password:not(.p-disabled).p-focus .p-inputtext,
+.p-inputnumber:not(.p-disabled).p-focus .p-inputnumber-input,
+.p-dropdown:not(.p-disabled).p-focus,
+.p-multiselect:not(.p-disabled).p-focus,
+.p-calendar:not(.p-calendar-disabled).p-focus > .p-inputtext {
+  border-color: var(--color-brand);
+  box-shadow: var(--cc-focus-ring);
+}
+
+.p-dropdown-panel .p-dropdown-items .p-dropdown-item.p-highlight,
+.p-multiselect-panel .p-multiselect-items .p-multiselect-item.p-highlight,
+.p-autocomplete-panel .p-autocomplete-items .p-autocomplete-item.p-highlight,
+.p-datepicker table td > span.p-highlight,
+.p-datatable .p-datatable-tbody > tr.p-highlight,
+.p-paginator .p-paginator-pages .p-paginator-page.p-highlight,
+.p-tabview .p-tabview-nav li.p-highlight .p-tabview-nav-link {
+  color: var(--cc-highlight-text);
+  background: var(--cc-highlight-bg);
+  border-color: var(--color-brand);
+}
+
+.p-menu .p-menuitem-link:focus,
+.p-menu .p-menuitem-link:focus-visible,
+.p-menu .p-menuitem-link:not(.p-disabled):hover {
+  background: var(--cc-highlight-bg);
+  color: var(--cc-highlight-text);
+}
+
+.p-datatable .p-datatable-thead > tr > th {
+  padding: 0.7rem 0.8rem;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.p-datatable .p-datatable-tbody > tr > td {
+  padding: 0.65rem 0.8rem;
+  font-size: var(--text-sm);
+}
+
+.p-datatable .p-paginator {
+  padding: 0.55rem;
+}
+
+.p-dialog .p-dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+:where(button, a, input, select, textarea, [tabindex]):focus-visible {
+  outline: 3px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+@media (max-width: 639px) {
+  .p-dialog {
+    width: calc(100vw - 1.5rem);
+    max-height: calc(100dvh - 1.5rem);
+  }
+}

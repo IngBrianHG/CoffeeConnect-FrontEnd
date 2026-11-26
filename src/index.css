@@ -1,0 +1,86 @@
+/* Tokens compartidos: identidad Coffee Connect y dimensiones de interfaz. */
+:root {
+  --color-brand: #6f4e37;
+  --color-brand-hover: #5d4037;
+  --color-brand-soft: #8d6e63;
+  --color-accent: #e0247d;
+  --color-secondary: #d7ccc8;
+  --color-text: #212121;
+  --color-text-muted: #757575;
+  --color-text-inverse: #fff;
+  --color-canvas: #fafafa;
+  --color-surface: #fff;
+  --color-surface-subtle: #f5f3f1;
+  --color-border: #e4e0dd;
+  --color-border-strong: #c9c1bb;
+  --color-success: #388e3c;
+  --color-warning: #a66a00;
+  --color-danger: #c62828;
+  --color-info: #1565c0;
+  --color-error-legacy: #f44336;
+  --color-warning-legacy: #ffc107;
+  --color-focus: rgb(111 78 55 / 30%);
+  --font-family-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-base: 14px;
+  --text-section: 17px;
+  --text-page: 24px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-pill: 999px;
+  --shadow-sm: 0 1px 3px rgb(33 33 33 / 8%);
+  --shadow-md: 0 8px 24px rgb(33 33 33 / 14%);
+  --control-height: 40px;
+  --button-height: 40px;
+  --touch-target: 44px;
+  --z-sticky: 10;
+  --z-drawer: 900;
+  --z-dialog: 1000;
+  --z-toast: 1100;
+  --primary-color: var(--color-brand);
+  --primary-dark: var(--color-brand-hover);
+  --primary-light: var(--color-brand-soft);
+  --secondary-color: var(--color-secondary);
+  --accent-color: var(--color-accent);
+  --success-color: #4caf50;
+  --error-color: var(--color-error-legacy);
+  --warning-color: var(--color-warning-legacy);
+  --text-primary: var(--color-text);
+  --text-secondary: var(--color-text-muted);
+  --background-light: var(--color-canvas);
+  --background-white: var(--color-surface);
+  --border-radius: var(--radius-lg);
+  --border-radius-lg: 16px;
+  --transition-fast: 0.2s ease;
+  --transition-normal: 0.3s ease;
+  --transition-slow: 0.5s ease;
+}
+
+/* Keep box sizing predictable without resetting PrimeReact's component spacing. */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-family-sans);
+  color: var(--color-text);
+  font-size: var(--text-base);
+  line-height: 1.5;
+  background: var(--color-canvas);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}

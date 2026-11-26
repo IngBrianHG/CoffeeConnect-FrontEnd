@@ -1,0 +1,9 @@
+Proyect name: CoffeeConnect Project
+Pass DB: CoffeeDev2611q
+
+
+API URL RESTfull:
+https://baewznlpcnswdetutsdq.supabase.co/rest/v1/
+
+Public Key:
+sb_publishable_7fttDkyt4Nd6teGdSRHd9Q_wM8nJ_44
