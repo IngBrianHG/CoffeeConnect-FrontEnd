@@ -10,6 +10,9 @@
     "test:catalog": "node --experimental-strip-types --test tests/catalog.test.mjs",
     "test:inventory": "node --experimental-strip-types --test tests/inventory.test.mjs",
     "test:admin-catalog": "node --experimental-strip-types --test tests/adminCatalog.test.mjs",
+    "test:cafe-tables": "node --experimental-strip-types --test tests/cafeTables.test.mjs",
+    "test:orders": "node --experimental-strip-types --test tests/orders.test.mjs",
+    "test:order-availability": "node --experimental-strip-types --test tests/orderAvailability.test.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

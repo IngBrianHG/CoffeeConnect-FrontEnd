@@ -1,17 +1,17 @@
 # Contrato 05 — Administración de categorías, productos y promociones
 
 **Etapa:** 4.3 del plan de migración.  
-**Estado:** definido; implementación pendiente de confirmar los contratos de Storage y precio promocional en el servidor.  
+**Estado:** definido para carga de imágenes; precio promocional en el servidor sigue pendiente.  
 **Objetivo:** migrar el mantenimiento administrativo de categorías, productos y promociones a Supabase REST sin trasladar a la UI la autoridad sobre precios/descuentos.
 
 ## Límites
 
 - Mantener UUIDs y modelos internos camelCase; no reutilizar IDs numéricos del flujo Express.
 - Componentes consumen servicios de dominio. No construyen URLs PostgREST ni llaman RPC directamente.
-- Solo usar `HttpClient`, publishable key y token del usuario autenticado. Nunca exponer `service_role`.
+- El frontend solo usa `HttpClient`, publishable key y token del usuario autenticado. Nunca exponer `service_role` en el navegador; la función Edge la usa solo en el servidor para Storage.
 - No cambiar el checkout ni migrar promociones del kiosco/POS en este contrato.
 - Las promociones se administran aquí, pero su cálculo y aplicación en órdenes requieren una interfaz server-side validada. El cliente no puede ser autoridad de precio ni importe descontado.
-- Imágenes: no habilitar carga hasta confirmar bucket, límites, tipos, políticas de Storage y URL pública/firmada. Hasta entonces `imageUrl` es solo lectura/escritura de URL si el backend ya lo permite; no aceptar URLs arbitrarias en la UI sin definir política.
+- Imágenes: la carga se realiza exclusivamente mediante `product-image-upload`, una Edge Function que verifica sesión y perfil admin, admite JPG/PNG/WebP hasta 5 MiB y devuelve una URL pública del bucket `product-images`. La UI no acepta URLs arbitrarias.
 
 ## Autoridad y permisos
 
@@ -43,6 +43,15 @@ PATCH /rest/v1/products?id=eq.<uuid>
 Alta: `{ "category_id": "<uuid>", "name": "...", "description": "...", "price": 4.50, "image_url": null, "active": true }`. No enviar `stock` al crear o editar productos; los ajustes siguen el contrato 04 y su RPC. Precio finito y estrictamente positivo con dos decimales; nombre no vacío. La categoría debe existir y estar activa para publicar el producto.
 
 Para listas administrativas se permite leer stock solo si el usuario está autenticado y autorizado por RLS. El catálogo público continúa usando `public_menu`, nunca `products` ni campos de inventario.
+
+### Imágenes de producto (Supabase Storage)
+
+- Bucket `product-images`, público solo para lectura del catálogo; los objetos se escriben exclusivamente desde la Edge Function con `service_role`, que nunca llega al navegador.
+- Límite: 5 MiB; MIME permitido: `image/jpeg`, `image/png`, `image/webp`. La función también comprueba la firma del archivo.
+- La función exige JWT válido y perfil `admin` activo. El navegador envía `multipart/form-data` con el campo `file`, `apikey` publishable y `Authorization: Bearer <access_token>`.
+- Respuesta `201`: `{ "imageUrl": "https://<proyecto>/storage/v1/object/public/product-images/products/<uuid>.<ext>" }`. El frontend persiste esa URL en `products.image_url` mediante REST.
+- Cada carga usa una ruta nueva e inmutable. Si luego falla el guardado del producto o se cancela el diálogo, el objeto puede quedar huérfano; mantener la URL en el formulario para reintentar evita volver a cargarlo. La limpieza automática de huérfanos queda como mantenimiento separado.
+- No se reemplazan objetos existentes ni se borra la imagen anterior automáticamente. Las imágenes públicas deben considerarse visibles para cualquiera que conozca su URL.
 
 ### Promociones
 
@@ -98,5 +107,6 @@ Los parsers deben rechazar respuesta malformada, UUID inválido, precio no finit
 ## Dependencias pendientes antes de habilitar funcionalidades
 
 - Confirmar permisos SQL exactos de `products` (en particular lectura administrativa de `stock`) y vistas/columnas expuestas por PostgREST.
-- Definir Storage: bucket, políticas, tamaños, tipos MIME y estrategia de URL.
+- Configurar en Supabase Storage el bucket descrito arriba y desplegar su función según `supabase/PRODUCT_IMAGE_UPLOAD.md`; falta verificarlo en staging.
+- Configurar en Supabase Storage el bucket público `product-images` y desplegar `product-image-upload` con allowlist de orígenes. No crear políticas de escritura para clientes.
 - Definir API/RPC autoritativa para promociones y asegurar que cálculo y creación de órdenes compartan las mismas reglas.

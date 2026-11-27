@@ -11,12 +11,12 @@ Los documentos de contexto y arquitectura permanecen en `frontend/docs/` y `docs
 3. [Usuarios y roles](03-usuarios-y-roles.md) — crear empleados con contraseña inicial del backend, editar, activar/inactivar y eliminar mediante Edge Function protegida; la cuenta admin principal está protegida.
 4. [Inventario y recetas](04-inventario-y-recetas.md) — ajustes solo por RPC y recetas atómicas con unidades base cerradas.
 5. [Categorías, productos y promociones](05-productos-categorias-y-promociones.md) — administración autenticada; cálculo promocional sigue siendo autoridad del servidor.
+6. [Mesas y sesiones](06-mesas-y-sesiones.md) — administración de mesas, apertura idempotente y cierre seguro de sesiones.
+7. [Órdenes kiosco/POS](07-ordenes-kiosco-pos.md) — ciclo de vida de órdenes, stock previo en POS, mesa operativa `Para llevar`, estados e idempotencia.
+8. [Cuenta de mesa y pagos](08-cuenta-y-pagos.md) — cuenta agrupada por sesión, pagos parciales/divididos entre pedidos y cierre seguro.
 
 ## Siguientes contratos según el plan de migración
 
-6. **Mesas y sesiones** (4.4).
-7. **Órdenes kiosco/POS** (4.5): creación pública, confirmación/estados/cancelación e idempotencia.
-8. **Cobros divididos** (4.6): pagos parciales, asignaciones por línea y saldo.
 9. **Reportes, importación, conciliación y corte** (etapa 5).
 
 ## Flujo de trabajo para cada contrato

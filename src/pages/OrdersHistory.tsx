@@ -1,23 +1,30 @@
-import { Suspense, lazy, useState, useEffect, useCallback } from 'react';
+import { Suspense, lazy, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Swal from 'sweetalert2';
-import { ClipboardList, Coffee, Package, LogOut, RefreshCw, AlertTriangle, ChefHat, CheckCircle, Bell, Ban, Trash2, CreditCard, Clock, Calendar, DollarSign, Plus, X, Save, ShoppingCart, Minus, Search, Wallet, BarChart3, Banknote, Smartphone, Hash, Pencil, Users, Gift, MessageSquareText, Boxes, UserRound } from 'lucide-react';
+import { ClipboardList, Coffee, Package, LogOut, RefreshCw, AlertTriangle, ChefHat, CheckCircle, Bell, Ban, Trash2, CreditCard, Clock, Calendar, DollarSign, Plus, X, Save, ShoppingCart, Minus, Search, BarChart3, Banknote, Smartphone, Hash, Pencil, Users, Gift, MessageSquareText, Boxes, UserRound } from 'lucide-react';
 import {
   fetchOrders, fetchOrderById, updateOrderStatus,
-  fetchProducts, fetchCategories, createProduct, deleteProduct, updateProduct,
-  fetchMesas, payTableOrders, createOrder, fetchReport, fetchActivePromotions
+  createProduct, deleteProduct, updateProduct, fetchReport
 } from '../services/api';
 import type { Mesa, ReportData } from '../services/api';
 import type { Order, CartItem } from '../types/Order';
 import type { Product } from '../types/Product';
 import type { Category } from '../types/Category';
-import type { Promotion } from '../types/Promotion';
 import { getProductImage } from '../utils/productImage';
 import { useAuth } from '../auth/AuthContext';
 import { PromotionsPanel } from '../components/PromotionsPanel';
 import { UsersAdmin } from './admin/UsersAdmin';
 import { AdminCatalogPage } from './admin/AdminCatalogPage';
-import { calculateCartPricing, newLineId, getProductPromos, promoLabel, MAX_NOTE_LENGTH } from '../utils/promotions';
+import { TablesSessionsPage } from './admin/TablesSessionsPage';
+import { calculateCartPricing, newLineId, MAX_NOTE_LENGTH } from '../utils/promotions';
+import { OrdersAdmin } from '../features/orders/OrdersAdmin';
+import { createCafeOrdersService, ordersErrorMessage } from '../features/orders/ordersService';
+import { createOrderAvailabilityService } from '../features/orders/orderAvailabilityService';
+import { createCafeTablesService } from '../services/cafeTables';
+import { catalogService, type PublicMenuItem } from '../services/catalog';
+import { httpClient } from '../services/http/client';
+import { ApiError } from '../services/http/client';
+import type { CreateOrderLine } from '../features/orders/model';
 
 const InventoryPage = lazy(() => import('../features/inventory/InventoryPage').then(module => ({ default: module.InventoryPage })));
 
@@ -68,15 +75,62 @@ function formatDate(dateStr?: string) {
 }
 
 const EMPTY_FORM = { name: '', description: '', price: '', image: '', category_id: '' };
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 function legacyProductAdminVisible(role: string, tab: string): boolean {
   void role;
   void tab;
   return false;
 }
+function legacyOrdersVisible(): boolean { return false; }
+function readPendingPosOrder(): { tableId: string; key: string; items: CreateOrderLine[] } | null {
+  const storageKey = 'coffee-connect-pending-pos-order';
+  try {
+    const stored = JSON.parse(sessionStorage.getItem(storageKey) ?? 'null') as {
+      tableId?: unknown; key?: unknown; items?: unknown;
+    } | null;
+    if (!stored) return null;
+    const valid = typeof stored.tableId === 'string' && UUID_PATTERN.test(stored.tableId)
+      && typeof stored.key === 'string' && UUID_PATTERN.test(stored.key)
+      && Array.isArray(stored.items) && stored.items.length >= 1 && stored.items.length <= 50
+      && stored.items.every((line: unknown) => {
+        if (!line || typeof line !== 'object' || Array.isArray(line)) return false;
+        const item = line as Record<string, unknown>;
+        return typeof item.productId === 'string' && UUID_PATTERN.test(item.productId)
+          && Number.isInteger(item.quantity) && Number(item.quantity) >= 1 && Number(item.quantity) <= 99
+          && (item.notes === undefined || item.notes === null || (typeof item.notes === 'string' && item.notes.length <= 200));
+      });
+    if (!valid) {
+      sessionStorage.removeItem(storageKey);
+      return null;
+    }
+    return stored as { tableId: string; key: string; items: CreateOrderLine[] };
+  } catch {
+    try { sessionStorage.removeItem(storageKey); } catch { /* Storage puede estar bloqueado. */ }
+    return null;
+  }
+}
 
 export function OrdersHistory() {
   const navigate = useNavigate();
-  const { session, signOut } = useAuth();
+  const { session, signOut, refreshSession } = useAuth();
+  const accessToken = session?.accessToken;
+  const accessTokenRef = useRef(accessToken);
+  accessTokenRef.current = accessToken;
+  const ordersService = useMemo(() => createCafeOrdersService(httpClient, () => accessTokenRef.current, async () => {
+    const refreshed = await refreshSession().catch(() => null);
+    accessTokenRef.current = refreshed?.accessToken;
+    return refreshed?.accessToken ?? null;
+  }), [refreshSession]);
+  const tablesService = useMemo(() => createCafeTablesService(httpClient, () => accessTokenRef.current, async () => {
+    const refreshed = await refreshSession().catch(() => null);
+    accessTokenRef.current = refreshed?.accessToken;
+    return refreshed?.accessToken ?? null;
+  }), [refreshSession]);
+  const availabilityService = useMemo(() => createOrderAvailabilityService(httpClient, () => accessTokenRef.current, async () => {
+    const refreshed = await refreshSession().catch(() => null);
+    accessTokenRef.current = refreshed?.accessToken;
+    return refreshed?.accessToken ?? null;
+  }), [refreshSession]);
   const userRole = session?.profile.role ?? 'waiter';
   const [activeTab, setActiveTab] = useState<'orders' | 'products' | 'mesas' | 'pos' | 'reports' | 'users' | 'promos' | 'inventory' | 'profile'>(userRole === 'admin' ? 'orders' : 'pos');
   const [inventoryRecipeDirty, setInventoryRecipeDirty] = useState(false);
@@ -103,6 +157,7 @@ export function OrdersHistory() {
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(false);
+  const productLoadSequence = useRef(0);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [savingProduct, setSavingProduct] = useState(false);
@@ -117,18 +172,17 @@ export function OrdersHistory() {
 
   // — Mesas —
   const [mesas, setMesas] = useState<Mesa[]>([]);
-  const [loadingMesas, setLoadingMesas] = useState(false);
-  const [processingPayment, setProcessingPayment] = useState<string | null>(null);
-  const [paymentModal, setPaymentModal] = useState<{ mesaId: string; mesaName: string; total: number; count: number; } | null>(null);
-  const [paymentMethod, setPaymentMethod] = useState<'efectivo' | 'tarjeta' | 'transferencia'>('efectivo');
 
   // — POS (Punto de Venta) —
   const [posCart, setPosCart] = useState<CartItem[]>([]);
   const [posSelectedMesaId, setPosSelectedMesaId] = useState<string>('');
   const [posSearchTerm, setPosSearchTerm] = useState('');
-  const [posSelectedCategory, setPosSelectedCategory] = useState<number | null>(null);
+  const [posSelectedCategory, setPosSelectedCategory] = useState<string | null>(null);
   const [posIsProcessing, setPosIsProcessing] = useState(false);
-  const [posPromotions, setPosPromotions] = useState<Promotion[]>([]);
+  const [posAvailabilityError, setPosAvailabilityError] = useState<string | null>(null);
+  const [posTableError, setPosTableError] = useState<string | null>(null);
+  const [posStockMessage, setPosStockMessage] = useState<string | null>(null);
+  const [pendingPosOrder, setPendingPosOrder] = useState<{ tableId: string; key: string; items: CreateOrderLine[] } | null>(readPendingPosOrder);
 
   // — Reportes —
   const [reportData, setReportData] = useState<ReportData | null>(null);
@@ -186,53 +240,128 @@ export function OrdersHistory() {
   }, []);
 
   const loadProducts = useCallback(async () => {
+    const sequence = ++productLoadSequence.current;
     setLoadingProducts(true);
+    setProductError(null);
+    setPosAvailabilityError(null);
     try {
-      const [prods, cats] = await Promise.all([fetchProducts(), fetchCategories()]);
-      setProducts(prods);
-      setCategories(cats);
-    } catch {
+      const [menu, cats] = await Promise.all([catalogService.listPublicMenu(), catalogService.listPublicCategories()]);
+      if (sequence !== productLoadSequence.current) return;
+      const nextProducts = menu.map((item: PublicMenuItem) => ({
+        id: item.id, category_id: item.categoryId, name: item.name,
+        description: item.description ?? undefined, price: item.price, image: item.imageUrl ?? undefined,
+      })) as unknown as Product[];
+      setCategories(cats.map(category => ({
+        id: category.id, name: category.name, description: category.description ?? undefined,
+      })) as unknown as Category[]);
+      if (nextProducts.length > 0) {
+        try {
+          const productIds = nextProducts.map(product => String(product.id));
+          const availability = (await Promise.all(
+            Array.from({ length: Math.ceil(productIds.length / 100) }, (_, index) =>
+              availabilityService.getAvailability(productIds.slice(index * 100, (index + 1) * 100))),
+          )).flat();
+          if (sequence !== productLoadSequence.current) return;
+          const availabilityByProduct = new Map(availability.map(item => [item.productId, item]));
+          if (nextProducts.some(product => !availabilityByProduct.has(String(product.id)))) {
+            throw new ApiError(200, 'La disponibilidad de productos está incompleta.', 'INVALID_RESPONSE');
+          }
+          setProducts(nextProducts.map(product => ({
+            ...product,
+            stock: availabilityByProduct.get(String(product.id))!.orderable
+              ? availabilityByProduct.get(String(product.id))!.availableQuantity
+              : 0,
+            has_recipe: availabilityByProduct.get(String(product.id))!.usesRecipe,
+          })));
+        } catch (cause) {
+          if (sequence !== productLoadSequence.current) return;
+          if (cause instanceof ApiError && cause.status === 401) {
+            await signOut();
+            navigate('/admin/login', { replace: true });
+          }
+          setProducts(nextProducts);
+          setPosAvailabilityError(ordersErrorMessage(cause));
+        }
+      } else {
+        setProducts([]);
+      }
+      if (pendingPosOrder) {
+        const productById = new Map(nextProducts.map(product => [String(product.id), product]));
+        const recovered: CartItem[] = pendingPosOrder.items.flatMap(line => {
+          const product = productById.get(line.productId);
+          return product ? [{
+            lineId: newLineId(), product, quantity: line.quantity,
+            subtotal: product.price * line.quantity, ...(line.notes ? { notes: line.notes } : {}),
+          }] : [];
+        });
+        if (recovered.length === pendingPosOrder.items.length) {
+          setPosCart(recovered);
+          setPosSelectedMesaId(pendingPosOrder.tableId);
+        }
+      }
+    } catch (cause) {
+      if (sequence !== productLoadSequence.current) return;
+      if (cause instanceof ApiError && cause.status === 401) {
+        await signOut();
+        navigate('/admin/login', { replace: true });
+      }
       setProductError('No se pudieron cargar los productos.');
     } finally {
-      setLoadingProducts(false);
+      if (sequence === productLoadSequence.current) setLoadingProducts(false);
     }
-  }, []);
+  }, [availabilityService, navigate, pendingPosOrder, signOut]);
 
   const loadMesas = useCallback(async () => {
-    setLoadingMesas(true);
+    setPosTableError(null);
     try {
-      const data = await fetchMesas();
-      setMesas(data);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoadingMesas(false);
+      const [tables, sessions] = await Promise.all([tablesService.listTables(), tablesService.listOpenSessions()]);
+      const openTableIds = new Set(sessions.map(item => item.tableId));
+      const takeawayTables = tables.filter(table => table.name.trim().toLocaleLowerCase('es-SV') === 'para llevar');
+      if (takeawayTables.length !== 1) {
+        setPosTableError(takeawayTables.length === 0
+          ? 'No se encontró la mesa configurada “Para llevar”. Verifica que esté activa en el sistema.'
+          : 'Hay más de una mesa “Para llevar”. Se requiere una sola mesa virtual activa.');
+      } else if (!takeawayTables[0].active || takeawayTables[0].status === 'unavailable') {
+        setPosTableError('La mesa “Para llevar” está inactiva o no disponible. Solicita al administrador que la habilite.');
+      }
+      const selectable = tables.filter(table => {
+        if (!table.active || table.status === 'unavailable') return false;
+        const isTakeaway = table.name.trim().toLocaleLowerCase('es-SV') === 'para llevar';
+        if (isTakeaway && takeawayTables.length !== 1) return false;
+        return isTakeaway || openTableIds.has(table.id);
+      });
+      setMesas(selectable.map(table => ({
+        id: table.id,
+        name: table.name,
+        status: openTableIds.has(table.id) ? 'OCUPADA' as const : 'DISPONIBLE' as const,
+      })));
+    } catch (cause) {
+      if (cause instanceof ApiError && cause.status === 401) {
+        await signOut();
+        navigate('/admin/login', { replace: true });
+      }
+      setMesas([]);
+      setPosTableError('No se pudieron cargar las mesas y sesiones. Actualiza la vista antes de enviar un pedido.');
     }
-  }, []);
-
-  const loadPosPromotions = useCallback(async () => {
-    try {
-      setPosPromotions(await fetchActivePromotions());
-    } catch {
-      setPosPromotions([]);
-    }
-  }, []);
-
-  useEffect(() => { loadOrders(); }, [loadOrders]);
+  }, [navigate, signOut, tablesService]);
 
   useEffect(() => {
-    if (activeTab === 'mesas') loadMesas();
-    if (activeTab === 'pos') { loadMesas(); loadProducts(); loadPosPromotions(); }
-  }, [activeTab, loadProducts, loadMesas, userRole, loadPosPromotions]);
+    if (activeTab === 'pos') { loadMesas(); loadProducts(); }
+  }, [activeTab, loadProducts, loadMesas, userRole]);
 
   useEffect(() => {
-    if (!autoRefresh) return;
-    const interval = setInterval(() => {
-      if (activeTab === 'orders') loadOrders();
-      if (activeTab === 'mesas') loadMesas();
-    }, 15000);
-    return () => clearInterval(interval);
-  }, [autoRefresh, activeTab, loadOrders, loadMesas]);
+    if (activeTab !== 'pos') return;
+    const refreshAvailability = () => { void loadProducts(); };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') refreshAvailability();
+    };
+    window.addEventListener('focus', refreshAvailability);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      window.removeEventListener('focus', refreshAvailability);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [activeTab, loadProducts]);
 
   async function handleSelectOrder(order: Order) {
     if (!order.id) return;
@@ -369,53 +498,28 @@ export function OrdersHistory() {
     }
   }
 
-  function handlePayMesa(mesa: Mesa) {
-    const mesaOrders = orders.filter(o => o.mesa_id === mesa.id && o.status === 'delivered' && !o.pago_id);
-    if (mesaOrders.length === 0) {
-      Swal.fire({
-        icon: 'info',
-        title: 'Sin pedidos por cobrar',
-        text: 'No hay pedidos "Entregados" pendientes de cobro para esta mesa.',
-        confirmButtonColor: '#E0247D'
-      });
-      return;
-    }
-    const total = mesaOrders.reduce((sum, o) => sum + Number(o.total), 0);
-    setPaymentModal({ mesaId: mesa.id, mesaName: mesa.name, total, count: mesaOrders.length });
-  }
-
-  async function confirmPaymentMesa() {
-    if (!paymentModal) return;
-    setProcessingPayment(paymentModal.mesaId);
-    try {
-      const res = await payTableOrders(paymentModal.mesaId, paymentMethod);
-      Swal.fire({
-        icon: 'success',
-        title: '¡Cobro Exitoso!',
-        text: res.message || `Total cobrado: $${res.data?.total_paid}`,
-        confirmButtonColor: '#10B981'
-      });
-      await loadMesas();
-      await loadOrders();
-    } catch (e) {
-      Swal.fire({
-        icon: 'error',
-        title: 'Error de Cobro',
-        text: (e instanceof Error ? e.message : '') || 'Error al procesar el pago.',
-        confirmButtonColor: '#EF4444'
-      });
-    } finally {
-      setProcessingPayment(null);
-      setPaymentModal(null);
-      setPaymentMethod('efectivo');
-    }
-  }
-
   // ── POS Functions ──
   function posAddToCart(product: Product) {
+    if (posAvailabilityError || typeof product.stock !== 'number' || !Number.isInteger(product.stock) || product.stock < 1) {
+      setPosStockMessage(posAvailabilityError ?? 'Este producto no tiene existencias disponibles para agregar.');
+      return;
+    }
+    const inCart = posCart
+      .filter(item => String(item.product.id) === String(product.id))
+      .reduce((total, item) => total + item.quantity, 0);
+    const mergeable = posCart.find(item => String(item.product.id) === String(product.id) && !item.notes);
+    if (mergeable && mergeable.quantity >= 99) {
+      setPosStockMessage('La cantidad máxima por línea es 99.');
+      return;
+    }
+    if (inCart >= product.stock) {
+      setPosStockMessage(`Solo hay ${product.stock} unidad(es) disponibles de ${product.name}.`);
+      return;
+    }
+    setPosStockMessage(null);
     setPosCart(prev => {
       // Se suma a la línea del mismo producto SIN comentario; si ya tiene comentario, se crea otra línea
-      const existing = prev.find(item => item.product.id === product.id && !item.notes);
+      const existing = prev.find(item => String(item.product.id) === String(product.id) && !item.notes);
       if (existing) {
         return prev.map(item =>
           item.lineId === existing.lineId
@@ -428,13 +532,28 @@ export function OrdersHistory() {
   }
 
   function posIncreaseQty(lineId: string) {
-    setPosCart(prev =>
-      prev.map(item =>
-        item.lineId === lineId
-          ? { ...item, quantity: item.quantity + 1, subtotal: (item.quantity + 1) * item.product.price }
-          : item
-      )
-    );
+    const line = posCart.find(item => item.lineId === lineId);
+    if (!line) return;
+    const product = products.find(item => String(item.id) === String(line.product.id));
+    if (!product || typeof product.stock !== 'number' || !Number.isInteger(product.stock)) {
+      setPosStockMessage(posAvailabilityError ?? 'No se pudo validar la disponibilidad. Actualiza los productos antes de cambiar la cantidad.');
+      return;
+    }
+    const inCart = posCart
+      .filter(item => String(item.product.id) === String(line.product.id))
+      .reduce((total, item) => total + item.quantity, 0);
+    if (inCart >= product.stock || line.quantity >= 99) {
+      setPosStockMessage(inCart >= product.stock
+        ? `Solo hay ${product.stock} unidad(es) disponibles de ${product.name}.`
+        : 'La cantidad máxima por línea es 99.');
+      return;
+    }
+    setPosStockMessage(null);
+    setPosCart(prev => prev.map(item =>
+      item.lineId === lineId
+        ? { ...item, quantity: item.quantity + 1, subtotal: (item.quantity + 1) * item.product.price }
+        : item
+    ));
   }
 
   function posDecreaseQty(lineId: string) {
@@ -445,10 +564,12 @@ export function OrdersHistory() {
           : item
       )
     );
+    setPosStockMessage(null);
   }
 
   function posRemoveFromCart(lineId: string) {
     setPosCart(prev => prev.filter(item => item.lineId !== lineId));
+    setPosStockMessage(null);
   }
 
   // Comentario del cliente para un producto (ej: "con 2 cucharadas de azúcar")
@@ -456,41 +577,138 @@ export function OrdersHistory() {
     setPosCart(prev => prev.map(item => (item.lineId === lineId ? { ...item, notes } : item)));
   }
 
-  async function posConfirmOrder() {
-    if (posCart.length === 0 || !posSelectedMesaId) return;
-    setPosIsProcessing(true);
+  async function refreshAndValidatePosStock(lines: CreateOrderLine[]) {
+    const productIds = [...new Set(lines.map(item => item.productId))];
+    const availability = await availabilityService.getAvailability(productIds);
+    const byId = new Map(availability.map(item => [item.productId, item]));
+    setProducts(current => current.map(product => {
+      const currentAvailability = byId.get(String(product.id));
+      return currentAvailability ? {
+        ...product,
+        stock: currentAvailability.orderable ? currentAvailability.availableQuantity : 0,
+        has_recipe: currentAvailability.usesRecipe,
+      } : product;
+    }));
+    const quantities = new Map<string, number>();
+    for (const line of lines) quantities.set(line.productId, (quantities.get(line.productId) ?? 0) + line.quantity);
+    for (const [productId, quantity] of quantities) {
+      const currentAvailability = byId.get(productId);
+      const product = products.find(item => String(item.id) === productId);
+      if (!currentAvailability?.orderable) {
+        throw new ApiError(409, 'Un producto ya no está disponible. Actualiza el menú y edita el carrito.', 'PRODUCT_UNAVAILABLE');
+      }
+      if (quantity > currentAvailability.availableQuantity) {
+        const name = product?.name ?? 'un producto';
+        throw new ApiError(409, `No hay existencias suficientes de ${name}.`, currentAvailability.usesRecipe
+          ? 'INSUFFICIENT_INGREDIENT_STOCK'
+          : 'INSUFFICIENT_PRODUCT_STOCK');
+      }
+    }
+    setPosAvailabilityError(null);
+    setPosStockMessage(null);
+  }
+
+  async function ensureTakeawaySession(tableId: string) {
+    const selected = mesas.find(table => table.id === tableId);
+    if (selected?.name.trim().toLocaleLowerCase('es-SV') !== 'para llevar') return;
+    const sessions = await tablesService.listOpenSessions();
+    if (sessions.some(item => item.tableId === tableId)) return;
     try {
-      // El servidor calcula precios y promociones; aquí solo se envía qué y cuántos (+ comentario)
-      const order = {
-        mesa_id: posSelectedMesaId,
-        items: posCart.map(item => ({
-          product_id: item.product.id,
-          quantity: item.quantity,
-          notes: item.notes?.trim() || undefined,
-        })),
-      };
-      await createOrder(order);
+      await tablesService.openSession(tableId, crypto.randomUUID());
+    } catch (error) {
+      if (!(error instanceof ApiError) || error.code !== 'TABLE_ALREADY_OPEN') throw error;
+      const latestSessions = await tablesService.listOpenSessions();
+      if (!latestSessions.some(item => item.tableId === tableId)) throw error;
+    }
+    await loadMesas();
+  }
+
+  async function posConfirmOrder(retryAmbiguous = false) {
+    if (posIsProcessing) return;
+    if (pendingPosOrder && !retryAmbiguous) {
+      Swal.fire({ icon: 'warning', title: 'Envío pendiente', text: 'Reintenta únicamente la intención guardada; no se puede modificar hasta conocer el resultado.' });
+      return;
+    }
+    if (retryAmbiguous && !pendingPosOrder) return;
+    if (!pendingPosOrder && (posCart.length === 0 || !posSelectedMesaId)) return;
+    const items: CreateOrderLine[] = pendingPosOrder?.items ?? posCart.map(item => ({
+      productId: String(item.product.id),
+      quantity: item.quantity,
+      notes: item.notes?.trim() || null,
+    }));
+    if (posAvailabilityError && !pendingPosOrder) {
+      setPosStockMessage('No se puede enviar el pedido hasta validar existencias. Actualiza los productos e inténtalo de nuevo.');
+      return;
+    }
+    const intent = pendingPosOrder ?? { tableId: posSelectedMesaId!, items, key: crypto.randomUUID() };
+    setPosIsProcessing(true);
+    setPosStockMessage(null);
+    const retryingExistingIntent = pendingPosOrder !== null;
+    let orderRequestStarted = false;
+    try {
+      if (!retryingExistingIntent) {
+        try {
+          await refreshAndValidatePosStock(items);
+        } catch (cause) {
+          setPosAvailabilityError(ordersErrorMessage(cause));
+          setPosStockMessage(ordersErrorMessage(cause));
+          throw cause;
+        }
+        await ensureTakeawaySession(intent.tableId);
+      }
+      if (!retryingExistingIntent) {
+        setPendingPosOrder(intent);
+        try { sessionStorage.setItem('coffee-connect-pending-pos-order', JSON.stringify(intent)); } catch { /* En memoria durante esta vista. */ }
+      }
+      orderRequestStarted = true;
+      await ordersService.createOrder(intent.tableId, intent.items, intent.key);
+      try { sessionStorage.removeItem('coffee-connect-pending-pos-order'); } catch { /* La RPC confirmó la creación. */ }
+      setPendingPosOrder(null);
       setPosCart([]);
-      Swal.fire({ icon: 'success', title: '¡Pedido Creado!', text: `El pedido fue asignado correctamente a la mesa seleccionada.`, confirmButtonColor: '#10B981' });
-      await loadOrders();
+      Swal.fire({ icon: 'success', title: 'Pedido recibido', text: 'Quedó pendiente de confirmación por el personal. La creación no reserva inventario ni inicia preparación.', confirmButtonColor: '#10B981' });
       await loadMesas();
-      await loadProducts(); // el inventario cambió: refresca lo disponible
     } catch (e) {
-      // El servidor explica el motivo (ej: "No hay suficiente inventario: Leche para ...")
-      Swal.fire({ icon: 'error', title: 'No se pudo crear el pedido', text: e instanceof Error && e.message ? e.message : 'Intenta de nuevo.', confirmButtonColor: '#EF4444' });
-      loadProducts(); // puede que algo se haya agotado: refresca lo disponible
+      const ambiguous = orderRequestStarted && e instanceof ApiError && (e.status === 0 || e.status >= 500);
+      const stockUnavailable = e instanceof ApiError && [
+        'INSUFFICIENT_PRODUCT_STOCK', 'INSUFFICIENT_INGREDIENT_STOCK', 'PRODUCT_UNAVAILABLE',
+        'PRODUCT_RECIPE_HAS_INACTIVE_INGREDIENT',
+      ].includes(e.code ?? '');
+      const definitiveCreateRejection = e instanceof ApiError && [
+        'INSUFFICIENT_PRODUCT_STOCK', 'INSUFFICIENT_INGREDIENT_STOCK', 'PRODUCT_UNAVAILABLE',
+        'PRODUCT_RECIPE_HAS_INACTIVE_INGREDIENT', 'NO_OPEN_TABLE_SESSION', 'TABLE_NOT_FOUND',
+        'TABLE_UNAVAILABLE', 'IDEMPOTENCY_KEY_REUSED', 'INVALID_ORDER', 'INVALID_QUANTITY',
+        '22P02', '22023',
+      ].includes(e.code ?? '');
+      if (e instanceof ApiError && e.status === 401) {
+        await signOut();
+        navigate('/admin/login', { replace: true });
+      }
+      const mayDiscardIntent = !retryingExistingIntent
+        ? !orderRequestStarted || e instanceof ApiError
+          && (e.status === 401 || (e.status >= 400 && e.status < 500))
+        : orderRequestStarted && definitiveCreateRejection;
+      if (!ambiguous && mayDiscardIntent) {
+        try { sessionStorage.removeItem('coffee-connect-pending-pos-order'); } catch { /* El envío ya no se puede reintentar. */ }
+        setPendingPosOrder(null);
+      }
+      if (stockUnavailable) {
+        setPosStockMessage(ordersErrorMessage(e));
+        void loadProducts();
+      }
+      Swal.fire({ icon: ambiguous ? 'warning' : 'error', title: ambiguous ? 'Resultado sin confirmar' : 'No se pudo crear el pedido',
+        text: ambiguous ? 'Conservamos la misma clave. Usa “Reintentar envío pendiente” sin modificar el carrito.' : ordersErrorMessage(e) });
     } finally {
       setPosIsProcessing(false);
     }
   }
 
   const posFilteredProducts = products.filter(p => {
-    const catMatch = posSelectedCategory === null || p.category_id === posSelectedCategory;
+    const catMatch = posSelectedCategory === null || String(p.category_id) === String(posSelectedCategory);
     const searchMatch = posSearchTerm === '' || p.name.toLowerCase().includes(posSearchTerm.toLowerCase());
     return catMatch && searchMatch;
   });
 
-  const posPricing = calculateCartPricing(posCart, posPromotions);
+  const posPricing = calculateCartPricing(posCart, []);
   const posTotal = posPricing.total;
   const posItemCount = posCart.reduce((sum, item) => sum + item.quantity, 0);
   const posSelectedMesa = mesas.find(m => m.id === posSelectedMesaId);
@@ -532,16 +750,14 @@ export function OrdersHistory() {
               <ClipboardList size={20} /> Pedidos
             </button>
           )}
-          {userRole === 'admin' && (
-            <button
-              onClick={() => navigateTab('mesas')}
-              style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.85rem 1rem', borderRadius: '8px', border: 'none', background: activeTab === 'mesas' ? '#FDF2F8' : 'transparent', color: activeTab === 'mesas' ? '#E0247D' : '#4B5563', fontWeight: activeTab === 'mesas' ? '600' : '500', cursor: 'pointer', transition: 'all 0.2s ease', textAlign: 'left', fontSize: '1rem' }}
-              onMouseEnter={(e) => { if (activeTab !== 'mesas') e.currentTarget.style.backgroundColor = '#F9FAFB'; }}
-              onMouseLeave={(e) => { if (activeTab !== 'mesas') e.currentTarget.style.backgroundColor = 'transparent'; }}
-            >
-              <Coffee size={20} /> Mesas y Pagos
-            </button>
-          )}
+          <button
+            onClick={() => navigateTab('mesas')}
+            style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.85rem 1rem', borderRadius: '8px', border: 'none', background: activeTab === 'mesas' ? '#FDF2F8' : 'transparent', color: activeTab === 'mesas' ? '#E0247D' : '#4B5563', fontWeight: activeTab === 'mesas' ? '600' : '500', cursor: 'pointer', transition: 'all 0.2s ease', textAlign: 'left', fontSize: '1rem' }}
+            onMouseEnter={(e) => { if (activeTab !== 'mesas') e.currentTarget.style.backgroundColor = '#F9FAFB'; }}
+            onMouseLeave={(e) => { if (activeTab !== 'mesas') e.currentTarget.style.backgroundColor = 'transparent'; }}
+          >
+            <Coffee size={20} /> Mesas y Sesiones
+          </button>
           {userRole === 'admin' && (
             <button
               onClick={() => navigateTab('products')}
@@ -622,7 +838,7 @@ export function OrdersHistory() {
       <main className="admin-main" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <header className="admin-topbar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1.5rem 2.5rem', backgroundColor: '#ffffff', borderBottom: '1px solid #E5E7EB', zIndex: 5 }}>
           <h1 style={{ fontSize: '1.5rem', color: '#111827', margin: 0, fontWeight: '700' }}>
-            {activeTab === 'orders' ? 'Gestión de Pedidos' : activeTab === 'mesas' ? 'Mesas y Pagos' : activeTab === 'products' ? 'Catálogo de Productos' : activeTab === 'pos' ? 'Punto de Venta' : activeTab === 'users' ? 'Gestión de Usuarios' : activeTab === 'promos' ? 'Promociones y Ofertas' : activeTab === 'inventory' ? 'Inventario de Ingredientes' : activeTab === 'profile' ? 'Mi perfil' : 'Reportes'}
+            {activeTab === 'orders' ? 'Gestión de Pedidos' : activeTab === 'mesas' ? 'Mesas y Sesiones' : activeTab === 'products' ? 'Catálogo de Productos' : activeTab === 'pos' ? 'Punto de Venta' : activeTab === 'users' ? 'Gestión de Usuarios' : activeTab === 'promos' ? 'Promociones y Ofertas' : activeTab === 'inventory' ? 'Inventario de Ingredientes' : activeTab === 'profile' ? 'Mi perfil' : 'Reportes'}
           </h1>
           <div className="topbar-actions" style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
             <button
@@ -634,7 +850,7 @@ export function OrdersHistory() {
               <strong style={{ display: 'block' }}>{profileName}</strong>
               <span style={{ fontSize: '0.8rem', color: '#6B7280', textTransform: 'capitalize' }}>{userRole}</span>
             </button>
-            {activeTab === 'orders' || activeTab === 'mesas' ? (
+            {legacyOrdersVisible() ? (
               <>
                 <label className="auto-refresh-toggle" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#4B5563', fontSize: '0.95rem', cursor: 'pointer', fontWeight: '500' }}>
                   <input type="checkbox" checked={autoRefresh} onChange={e => setAutoRefresh(e.target.checked)} style={{ accentColor: '#E0247D', width: '16px', height: '16px' }} />
@@ -642,7 +858,7 @@ export function OrdersHistory() {
                 </label>
                 <button
                   className="refresh-btn"
-                  onClick={() => activeTab === 'orders' ? loadOrders() : loadMesas()}
+                  onClick={loadOrders}
                   style={{ padding: '0.6rem 1.25rem', background: '#F3F4F6', color: '#374151', border: '1px solid #E5E7EB', borderRadius: '8px', fontSize: '0.95rem', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem', transition: 'background 0.2s' }}
                   onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#E5E7EB'}
                   onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#F3F4F6'}
@@ -670,7 +886,8 @@ export function OrdersHistory() {
             </section>
           )}
 
-          {activeTab === 'orders' && (
+          {activeTab === 'orders' && !legacyOrdersVisible() && <OrdersAdmin />}
+          {activeTab === 'orders' && legacyOrdersVisible() && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', height: '100%' }}>
 
               <div className="orders-filters">
@@ -848,57 +1065,7 @@ export function OrdersHistory() {
           )}
 
           {/* ══ TAB MESAS Y PAGOS ══ */}
-          {activeTab === 'mesas' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', height: '100%' }}>
-              {loadingMesas ? (
-                <div className="orders-loading"><div className="orders-spinner"></div><p>Cargando mesas...</p></div>
-              ) : (
-                <div className="products-admin-list" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1.5rem' }}>
-                  {mesas.map(mesa => (
-                    <div key={mesa.id} className="product-admin-card" style={{ padding: '1.5rem', borderRadius: '12px', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}>
-                      <div className="product-admin-info" style={{ width: '100%' }}>
-                        <strong className="product-admin-name" style={{ fontSize: '1.25rem', marginBottom: '0.75rem' }}>{mesa.name}</strong>
-                        <div style={{ marginBottom: '1rem' }}>
-                          <span className="order-status-badge" style={{
-                            background: mesa.status === 'DISPONIBLE' ? '#388E3C' :
-                              mesa.status === 'OCUPADA' ? '#E0247D' :
-                                mesa.status === 'ASIGNADA' ? '#1976D2' : '#757575',
-                            padding: '0.35rem 0.75rem',
-                            fontSize: '0.85rem'
-                          }}>
-                            {mesa.status}
-                          </span>
-                        </div>
-
-                        {mesa.status === 'OCUPADA' && (
-                          <button
-                            onClick={() => handlePayMesa(mesa)}
-                            disabled={processingPayment === mesa.id}
-                            style={{
-                              width: '100%',
-                              padding: '0.75rem',
-                              background: '#E0247D',
-                              color: 'white',
-                              border: 'none',
-                              borderRadius: '8px',
-                              cursor: processingPayment === mesa.id ? 'not-allowed' : 'pointer',
-                              fontWeight: '600',
-                              transition: 'background 0.2s',
-                              boxShadow: '0 2px 4px rgba(224, 36, 125, 0.25)'
-                            }}
-                            onMouseEnter={(e) => { if (processingPayment !== mesa.id) e.currentTarget.style.backgroundColor = '#C2185B'; }}
-                            onMouseLeave={(e) => { if (processingPayment !== mesa.id) e.currentTarget.style.backgroundColor = '#E0247D'; }}
-                          >
-                            <CreditCard size={18} /> {processingPayment === mesa.id ? 'Cobrando...' : 'Cobrar Pedidos'}
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
+          {activeTab === 'mesas' && <TablesSessionsPage />}
 
           {/* ══ TAB PRODUCTOS ══ */}
           {activeTab === 'products' && userRole === 'admin' && <AdminCatalogPage />}
@@ -1028,19 +1195,34 @@ export function OrdersHistory() {
                 {/* Selector de Mesa */}
                 <div style={{ background: '#fff', padding: '1rem 1.25rem', borderRadius: '10px', border: '1px solid #E5E7EB', display: 'flex', alignItems: 'center', gap: '1rem' }}>
                   <Coffee size={20} color="#E0247D" />
+                  <label htmlFor="pos-table-select" className="sr-only">Mesa o tipo de pedido</label>
                   <select
+                    id="pos-table-select"
                     value={posSelectedMesaId}
-                    onChange={e => setPosSelectedMesaId(e.target.value)}
+                    onChange={e => { setPosSelectedMesaId(e.target.value); setPosStockMessage(null); }}
+                    disabled={Boolean(pendingPosOrder) || posIsProcessing}
                     style={{ flex: 1, padding: '0.6rem 0.75rem', borderRadius: '8px', border: '1px solid #D1D5DB', fontSize: '0.95rem', color: '#111827', fontWeight: '500' }}
                   >
                     <option value="">— Seleccionar Mesa —</option>
                     {mesas.map(m => (
                       <option key={m.id} value={m.id}>
-                        {m.name} ({m.status === 'DISPONIBLE' ? '🟢 Disponible' : m.status === 'OCUPADA' ? '🔴 Ocupada' : m.status === 'ASIGNADA' ? '🔵 Asignada' : '⚪ No disponible'})
+                        {m.name.trim().toLocaleLowerCase('es-SV') === 'para llevar'
+                          ? 'Para llevar'
+                          : `${m.name} (${m.status === 'OCUPADA' ? 'sesión abierta' : 'disponible'})`}
                       </option>
                     ))}
                   </select>
                 </div>
+                {posTableError && <div role="status" style={{ color: '#9A6700', background: '#FFF8C5', padding: '0.75rem 1rem', borderRadius: '8px' }}>
+                  {posTableError} <button type="button" onClick={() => void loadMesas()}>Actualizar mesas</button>
+                </div>}
+                {posAvailabilityError && <div role="alert" style={{ color: '#9B1C1C', background: '#FEF2F2', padding: '0.75rem 1rem', borderRadius: '8px' }}>
+                  {posAvailabilityError} <button type="button" onClick={() => void loadProducts()} disabled={loadingProducts}>Actualizar disponibilidad</button>
+                </div>}
+                {productError && <div role="alert" style={{ color: '#9B1C1C', background: '#FEF2F2', padding: '0.75rem 1rem', borderRadius: '8px' }}>
+                  {productError} <button type="button" onClick={() => void loadProducts()} disabled={loadingProducts}>Actualizar productos</button>
+                </div>}
+                {posStockMessage && <div role="alert" style={{ color: '#9B1C1C', background: '#FEF2F2', padding: '0.75rem 1rem', borderRadius: '8px' }}>{posStockMessage}</div>}
 
                 {/* Búsqueda y Filtros */}
                 <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
@@ -1063,8 +1245,8 @@ export function OrdersHistory() {
                   {categories.map(cat => (
                     <button
                       key={cat.id}
-                      onClick={() => setPosSelectedCategory(cat.id)}
-                      style={{ padding: '0.4rem 0.9rem', borderRadius: '20px', border: 'none', background: posSelectedCategory === cat.id ? '#E0247D' : '#F3F4F6', color: posSelectedCategory === cat.id ? '#fff' : '#4B5563', fontWeight: '600', cursor: 'pointer', fontSize: '0.85rem', transition: 'all 0.2s' }}
+                      onClick={() => setPosSelectedCategory(String(cat.id))}
+                      style={{ padding: '0.4rem 0.9rem', borderRadius: '20px', border: 'none', background: posSelectedCategory === String(cat.id) ? '#E0247D' : '#F3F4F6', color: posSelectedCategory === String(cat.id) ? '#fff' : '#4B5563', fontWeight: '600', cursor: 'pointer', fontSize: '0.85rem', transition: 'all 0.2s' }}
                     >{cat.name}</button>
                   ))}
                 </div>
@@ -1073,11 +1255,14 @@ export function OrdersHistory() {
                 <div style={{ flex: 1, overflowY: 'auto', paddingRight: '0.5rem' }}>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem' }}>
                     {posFilteredProducts.map(product => (
-                      <div
+                      <button
+                        type="button"
                         key={product.id}
-                        onClick={() => product.stock !== 0 && posAddToCart(product)}
-                        style={{ display: 'flex', flexDirection: 'column', borderRadius: '10px', overflow: 'hidden', background: '#fff', border: '1px solid #E5E7EB', cursor: product.stock === 0 ? 'not-allowed' : 'pointer', opacity: product.stock === 0 ? 0.5 : 1, transition: 'all 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}
-                        onMouseEnter={e => { if (product.stock !== 0) { e.currentTarget.style.borderColor = '#E0247D'; e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 4px 12px rgba(224,36,125,0.15)'; } }}
+                        onClick={() => posAddToCart(product)}
+                        disabled={loadingProducts || Boolean(posAvailabilityError) || !Number.isInteger(product.stock) || product.stock === 0}
+                        aria-label={`Agregar ${product.name} al pedido`}
+                        style={{ display: 'flex', flexDirection: 'column', textAlign: 'left', borderRadius: '10px', overflow: 'hidden', background: '#fff', border: '1px solid #E5E7EB', cursor: product.stock === undefined || product.stock === 0 || posAvailabilityError ? 'not-allowed' : 'pointer', opacity: product.stock === undefined || product.stock === 0 || posAvailabilityError ? 0.55 : 1, transition: 'all 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}
+                        onMouseEnter={e => { if (product.stock !== undefined && product.stock > 0 && !posAvailabilityError) { e.currentTarget.style.borderColor = '#E0247D'; e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 4px 12px rgba(224,36,125,0.15)'; } }}
                         onMouseLeave={e => { e.currentTarget.style.borderColor = '#E5E7EB'; e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.06)'; }}
                       >
                         <img
@@ -1088,23 +1273,16 @@ export function OrdersHistory() {
                         />
                         <div style={{ padding: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
                           <strong style={{ fontSize: '0.9rem', color: '#111827' }}>{product.name}</strong>
-                          {getProductPromos(product, posPromotions).length > 0 && (
-                            <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap' }}>
-                              {getProductPromos(product, posPromotions).map(p => (
-                                <span key={p.id} title={p.name} style={{ background: '#ECFDF5', color: '#047857', fontSize: '0.7rem', fontWeight: '800', padding: '0.1rem 0.45rem', borderRadius: '20px', border: '1px solid #A7F3D0' }}>{promoLabel(p)}</span>
-                              ))}
-                            </div>
-                          )}
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.25rem' }}>
                             <span style={{ fontWeight: '700', color: '#E0247D', fontSize: '1rem' }}>${Number(product.price).toFixed(2)}</span>
-                            {product.stock !== undefined && product.stock !== null && (
+                            {(
                               <span style={{ fontSize: '0.75rem', color: product.stock === 0 ? '#EF4444' : '#6B7280' }}>
-                                {product.stock === 0 ? 'Agotado' : `Stock: ${product.stock}`}
+                                {product.stock === undefined ? 'Validando…' : product.stock === 0 ? 'Agotado' : `Disponible: ${product.stock}`}
                               </span>
                             )}
                           </div>
                         </div>
-                      </div>
+                      </button>
                     ))}
                   </div>
                   {posFilteredProducts.length === 0 && (
@@ -1184,35 +1362,32 @@ export function OrdersHistory() {
                   <div style={{ padding: '1.25rem', borderTop: '2px solid #E5E7EB' }}>
                     {posSelectedMesa && (
                       <div style={{ padding: '0.5rem 0.75rem', background: '#F3F4F6', borderRadius: '6px', marginBottom: '0.75rem', fontSize: '0.85rem', color: '#4B5563', display: 'flex', justifyContent: 'space-between' }}>
-                        <span>Mesa:</span> <strong style={{ color: '#111827' }}>{posSelectedMesa.name}</strong>
-                      </div>
-                    )}
-                    {posPricing.discountTotal > 0 && (
-                      <div style={{ marginBottom: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.3rem', fontSize: '0.85rem' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', color: '#4B5563' }}>
-                          <span>Subtotal</span><span>${posPricing.subtotal.toFixed(2)}</span>
-                        </div>
-                        {posPricing.applied.map(a => (
-                          <div key={a.promoId} style={{ display: 'flex', justifyContent: 'space-between', color: '#059669', fontWeight: '600' }}>
-                            <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}><Gift size={13} /> {a.name}</span>
-                            <span>-${a.discount.toFixed(2)}</span>
-                          </div>
-                        ))}
+                      <span>Pedido:</span> <strong style={{ color: '#111827' }}>{posSelectedMesa.name.trim().toLocaleLowerCase('es-SV') === 'para llevar' ? 'Para llevar' : posSelectedMesa.name}</strong>
                       </div>
                     )}
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                      <span style={{ fontWeight: '600', color: '#4B5563' }}>Total:</span>
+                      <span style={{ fontWeight: '600', color: '#4B5563' }}>Estimado (sin promociones):</span>
                       <strong style={{ fontSize: '1.5rem', color: '#10B981' }}>${posTotal.toFixed(2)}</strong>
                     </div>
                     <button
-                      onClick={posConfirmOrder}
-                      disabled={posIsProcessing || !posSelectedMesaId}
-                      style={{ width: '100%', padding: '0.85rem', background: !posSelectedMesaId ? '#9CA3AF' : '#10B981', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: '700', fontSize: '1rem', cursor: !posSelectedMesaId ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', transition: 'background 0.2s' }}
+                      onClick={() => posConfirmOrder()}
+                      disabled={posIsProcessing || Boolean(pendingPosOrder) || loadingProducts || !posSelectedMesaId || Boolean(posAvailabilityError)}
+                      style={{ width: '100%', padding: '0.85rem', background: !posSelectedMesaId || posAvailabilityError ? '#9CA3AF' : '#10B981', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: '700', fontSize: '1rem', cursor: !posSelectedMesaId || posAvailabilityError ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', transition: 'background 0.2s' }}
                     >
-                      {posIsProcessing ? <><RefreshCw size={18} className="spin-icon" /> Procesando...</> : !posSelectedMesaId ? 'Selecciona una mesa' : <><CheckCircle size={18} /> Confirmar Pedido</>}
+                      {posIsProcessing ? <><RefreshCw size={18} className="spin-icon" /> Procesando...</>
+                        : loadingProducts ? 'Validando productos...'
+                          : posAvailabilityError ? 'Actualiza disponibilidad'
+                            : !posSelectedMesaId ? 'Selecciona una mesa' : <><CheckCircle size={18} /> Confirmar Pedido</>}
                     </button>
                   </div>
                 )}
+                {pendingPosOrder && <div role="status" className="flex flex-column gap-2" style={{ padding: '1rem', borderTop: '1px solid #E5E7EB' }}>
+                  <p style={{ margin: 0 }}>Hay un envío sin resultado confirmado. Conservamos la misma clave y el mismo carrito; reintenta sin modificar la intención.</p>
+                  <button type="button" onClick={() => posConfirmOrder(true)} disabled={posIsProcessing}
+                    style={{ width: '100%', minHeight: '44px' }}>
+                    {posIsProcessing ? 'Consultando resultado…' : 'Reintentar envío pendiente'}
+                  </button>
+                </div>}
               </div>
             </div>
           )}
@@ -1432,81 +1607,6 @@ export function OrdersHistory() {
                 style={{ padding: '0.75rem 1.5rem', background: '#10B981', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: '600', cursor: savingEdit ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem', transition: 'all 0.15s', fontSize: '0.95rem', opacity: savingEdit ? 0.7 : 1 }}
               >
                 {savingEdit ? <><RefreshCw size={18} className="spin-icon" /> Guardando...</> : <><Save size={18} /> Guardar cambios</>}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-
-      {/* MODAL DE PAGO */}
-      {paymentModal && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '1rem' }}>
-          <div style={{ background: '#fff', borderRadius: '12px', padding: '2rem', width: '100%', maxWidth: '400px', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1.5rem', color: '#111827' }}>
-              <div style={{ background: '#FDF2F8', padding: '0.75rem', borderRadius: '50%' }}>
-                <DollarSign size={24} color="#E0247D" />
-              </div>
-              <h2 style={{ fontSize: '1.25rem', fontWeight: '700', margin: 0 }}>Confirmar Cobro</h2>
-            </div>
-
-            <div style={{ background: '#F9FAFB', padding: '1.25rem', borderRadius: '8px', marginBottom: '1.5rem', border: '1px solid #E5E7EB' }}>
-              <p style={{ margin: '0 0 0.5rem 0', color: '#4B5563', display: 'flex', justifyContent: 'space-between' }}>
-                <span>Mesa:</span> <strong style={{ color: '#111827' }}>{paymentModal.mesaName}</strong>
-              </p>
-              <p style={{ margin: '0 0 0.5rem 0', color: '#4B5563', display: 'flex', justifyContent: 'space-between' }}>
-                <span>Pedidos Entregados:</span> <strong style={{ color: '#111827' }}>{paymentModal.count}</strong>
-              </p>
-              <hr style={{ borderTop: '1px solid #E5E7EB', margin: '1rem 0' }} />
-              <p style={{ margin: 0, fontSize: '1.1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ color: '#4B5563', fontWeight: '500' }}>Total a Cobrar:</span>
-                <strong style={{ fontSize: '1.5rem', color: '#10B981' }}>${paymentModal.total.toFixed(2)}</strong>
-              </p>
-            </div>
-
-            <div style={{ marginBottom: '1.5rem' }}>
-              <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: '600', color: '#4B5563', marginBottom: '0.5rem' }}>
-                <Wallet size={16} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '0.35rem' }} /> Método de Pago
-              </label>
-              <div style={{ display: 'flex', gap: '0.5rem' }}>
-                {(['efectivo', 'tarjeta', 'transferencia'] as const).map(method => (
-                  <button
-                    key={method}
-                    onClick={() => setPaymentMethod(method)}
-                    style={{
-                      flex: 1,
-                      padding: '0.6rem',
-                      borderRadius: '8px',
-                      border: paymentMethod === method ? '2px solid #E0247D' : '1px solid #D1D5DB',
-                      background: paymentMethod === method ? '#FDF2F8' : '#fff',
-                      color: paymentMethod === method ? '#E0247D' : '#4B5563',
-                      fontWeight: '600',
-                      cursor: 'pointer',
-                      fontSize: '0.85rem',
-                      textTransform: 'capitalize',
-                      transition: 'all 0.15s'
-                    }}
-                  >
-                    {method}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', gap: '1rem' }}>
-              <button
-                onClick={() => { setPaymentModal(null); setPaymentMethod('efectivo'); }}
-                style={{ flex: 1, padding: '0.75rem', background: '#F3F4F6', color: '#374151', border: 'none', borderRadius: '8px', fontWeight: '600', cursor: 'pointer' }}
-                disabled={processingPayment !== null}
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={confirmPaymentMesa}
-                style={{ flex: 1, padding: '0.75rem', background: '#10B981', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '0.5rem' }}
-                disabled={processingPayment !== null}
-              >
-                {processingPayment ? <RefreshCw size={18} className="spin-icon" /> : 'Confirmar Pago'}
               </button>
             </div>
           </div>

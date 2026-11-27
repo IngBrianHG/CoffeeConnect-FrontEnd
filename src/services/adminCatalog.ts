@@ -74,6 +74,7 @@ export interface AdminCatalogService {
   listProducts(signal?: AbortSignal): Promise<AdminProduct[]>;
   createProduct(input: ProductInput): Promise<void>;
   updateProduct(id: string, input: ProductInput): Promise<void>;
+  uploadProductImage(file: File): Promise<string>;
   listPromotions(signal?: AbortSignal): Promise<AdminPromotion[]>;
   createPromotion(input: PromotionInput): Promise<void>;
   updatePromotion(id: string, input: PromotionInput): Promise<void>;
@@ -84,6 +85,8 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 const CATEGORY_SELECT = 'id,name,description,active,created_at,updated_at';
 const PRODUCT_SELECT = 'id,category_id,name,description,price,image_url,active,stock,created_at,updated_at';
 const PROMOTION_SELECT = 'id,name,description,type,scope,buy_quantity,pay_quantity,percent,product_id,category_id,starts_on,ends_on,active';
+const MAX_PRODUCT_IMAGE_BYTES = 5 * 1024 * 1024;
+const PRODUCT_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 
 type Row = Record<string, unknown>;
 function invalid(resource: string): never {
@@ -240,6 +243,9 @@ export function adminCatalogErrorMessage(error: unknown): string {
   if (error.code === '23514') return 'Los datos no cumplen una regla del catálogo. Revisa el alcance, las cantidades y las fechas.';
   if (error.code === '22P02') return 'El formato de algún dato no es válido. Revisa los campos e inténtalo de nuevo.';
   if (error.code === 'VALIDATION_ERROR') return error.message;
+  if (error.code === 'IMAGE_TOO_LARGE' || error.status === 413) return 'La imagen no puede superar 5 MB.';
+  if (error.code === 'INVALID_IMAGE') return 'Selecciona una imagen JPG, PNG o WebP válida de hasta 5 MB.';
+  if (error.code === 'STORAGE_FAILURE') return 'No se pudo guardar la imagen. Puedes reintentar sin perder el formulario.';
   if (error.status === 401) return 'La sesión expiró. Inicia sesión nuevamente.';
   if (error.status === 403 || error.code === '42501') return 'No tienes permisos para realizar este cambio.';
   if (error.status >= 500 || error.status === 0) return 'El servicio no está disponible. Puedes reintentar.';
@@ -253,6 +259,17 @@ export function createAdminCatalogService(
 ): AdminCatalogService {
   const request = async <T>(resource: string, options: Parameters<HttpClient['request']>[1] = {}): Promise<T | null> => {
     const send = (accessToken: string | undefined) => client.request<T>(resource, { ...options, accessToken });
+    try {
+      return await send(getAccessToken());
+    } catch (error) {
+      if (!(error instanceof ApiError) || error.status !== 401) throw error;
+      const token = await refreshAccessToken().catch(() => null);
+      if (!token) throw error;
+      return send(token);
+    }
+  };
+  const invoke = async <T>(functionName: string, body: FormData): Promise<T | null> => {
+    const send = (accessToken: string | undefined) => client.invoke<T>(functionName, body, accessToken);
     try {
       return await send(getAccessToken());
     } catch (error) {
@@ -278,6 +295,29 @@ export function createAdminCatalogService(
     async updateProduct(id, input) {
       if (!UUID.test(id)) throw new ApiError(400, 'El identificador de producto no es válido.', 'VALIDATION_ERROR');
       await request('products', { method: 'PATCH', query: { id: `eq.${id}` }, body: validateProduct(input), prefer: 'return=minimal' });
+    },
+    async uploadProductImage(file) {
+      if (!(file instanceof File) || file.size <= 0 || file.size > MAX_PRODUCT_IMAGE_BYTES || !PRODUCT_IMAGE_TYPES.has(file.type)) {
+        throw new ApiError(400, 'Selecciona una imagen JPG, PNG o WebP de hasta 5 MB.', 'VALIDATION_ERROR');
+      }
+      const form = new FormData();
+      form.append('file', file);
+      const result = await invoke<unknown>('product-image-upload', form);
+      if (!result || typeof result !== 'object' || Array.isArray(result)) {
+        throw new ApiError(200, 'El servicio devolvió una respuesta no válida para la imagen.', 'INVALID_RESPONSE');
+      }
+      const imageUrl = (result as Record<string, unknown>).imageUrl;
+      if (typeof imageUrl !== 'string') {
+        throw new ApiError(200, 'El servicio devolvió una respuesta no válida para la imagen.', 'INVALID_RESPONSE');
+      }
+      try {
+        const parsed = new URL(imageUrl);
+        const validObjectPath = /^\/storage\/v1\/object\/public\/product-images\/products\/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.(jpg|png|webp)$/i.test(parsed.pathname);
+        if (parsed.protocol !== 'https:' || !validObjectPath || parsed.search || parsed.hash) throw new Error('invalid URL');
+      } catch {
+        throw new ApiError(200, 'El servicio devolvió una URL de imagen no válida.', 'INVALID_RESPONSE');
+      }
+      return imageUrl;
     },
     async listPromotions(signal) { return list('promotions', PROMOTION_SELECT, parsePromotion, signal); },
     async createPromotion(input) { await request('promotions', { method: 'POST', body: validatePromotion(input), prefer: 'return=minimal' }); },

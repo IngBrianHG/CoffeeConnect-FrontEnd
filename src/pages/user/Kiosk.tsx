@@ -4,15 +4,69 @@ import { AlertTriangle, XCircle, CheckCircle, ShoppingCart, X } from 'lucide-rea
 import type { Product } from '../../types/Product';
 import type { Category } from '../../types/Category';
 import type { CartItem } from '../../types/Order';
-import type { Promotion } from '../../types/Promotion';
 import { KioskLayout } from '../../components/layout/KioskoLayout';
 import { ProductGrid } from '../../components/ProductGrid';
 import { SearchBar } from '../../components/SearchBar';
 import { Cart } from '../../components/Cart';
 import { PromoBanner } from '../../components/PromoBanner';
-import { createOrder, fetchMesaPublic, fetchActivePromotions } from '../../services/api';
 import { catalogService, type PublicCategory, type PublicMenuItem } from '../../services/catalog';
 import { calculateCartPricing, newLineId } from '../../utils/promotions';
+import { createCafeTablesService } from '../../services/cafeTables';
+import { httpClient } from '../../services/http/client';
+import { createCafeOrdersService, ordersErrorMessage } from '../../features/orders/ordersService';
+import type { CreateOrderLine, KioskOrderTracking, OrderStatus } from '../../features/orders/model';
+import { ApiError } from '../../services/http/client';
+
+const cafeTablesService = createCafeTablesService(httpClient);
+const cafeOrdersService = createCafeOrdersService(httpClient);
+const PENDING_ORDER_KEY = 'coffee-connect-pending-kiosk-order';
+const TRACKED_ORDER_KEY = 'coffee-connect-tracked-kiosk-order';
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+type PendingOrder = { tableId: string; key: string; items: CreateOrderLine[] };
+type TrackedOrderIntent = { tableId: string; key: string; orderId: string };
+const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
+  pending: 'Pendiente de confirmación',
+  confirmed: 'Confirmado',
+  preparing: 'En preparación',
+  ready: 'Listo',
+  served: 'Entregado',
+  cancelled: 'Cancelado',
+};
+
+function readPendingOrder(): PendingOrder | null {
+  try {
+    const value = JSON.parse(sessionStorage.getItem(PENDING_ORDER_KEY) ?? 'null') as Partial<PendingOrder> | null;
+    if (!value) return null;
+    const valid = typeof value.tableId === 'string' && UUID_PATTERN.test(value.tableId)
+      && typeof value.key === 'string' && UUID_PATTERN.test(value.key)
+      && Array.isArray(value.items) && value.items.length >= 1 && value.items.length <= 50
+      && value.items.every((line: unknown) => {
+        if (!line || typeof line !== 'object' || Array.isArray(line)) return false;
+        const item = line as Record<string, unknown>;
+        return typeof item.productId === 'string' && UUID_PATTERN.test(item.productId)
+          && Number.isInteger(item.quantity) && Number(item.quantity) >= 1 && Number(item.quantity) <= 99
+          && (item.notes === undefined || item.notes === null || (typeof item.notes === 'string' && item.notes.length <= 200));
+      });
+    if (!valid) {
+      sessionStorage.removeItem(PENDING_ORDER_KEY);
+      return null;
+    }
+    return value as PendingOrder;
+  } catch {
+    try { sessionStorage.removeItem(PENDING_ORDER_KEY); } catch { /* Storage puede estar bloqueado. */ }
+    return null;
+  }
+}
+
+function readTrackedOrder(): TrackedOrderIntent | null {
+  try {
+    const value = JSON.parse(sessionStorage.getItem(TRACKED_ORDER_KEY) ?? 'null') as Partial<TrackedOrderIntent> | null;
+    if (!value || typeof value.tableId !== 'string' || !UUID_PATTERN.test(value.tableId)
+      || typeof value.key !== 'string' || !UUID_PATTERN.test(value.key)
+      || typeof value.orderId !== 'string' || !UUID_PATTERN.test(value.orderId)) return null;
+    return value as TrackedOrderIntent;
+  } catch { return null; }
+}
 
 function SplashScreen({ fadeOut, mesaName }: { fadeOut: boolean, mesaName: string }) {
   return (
@@ -58,7 +112,6 @@ export function Kiosk() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
-  const [promotions, setPromotions] = useState<Promotion[]>([]);
 
   const [mesaName, setMesaName] = useState('');
 
@@ -71,6 +124,10 @@ export function Kiosk() {
   const [loadingError, setLoadingError] = useState<string | null>(null);
   const [isInvalidMesa, setIsInvalidMesa] = useState(false);
   const [resolvedMesaId, setResolvedMesaId] = useState<string | null>(null);
+  const [pendingOrder, setPendingOrder] = useState<PendingOrder | null>(readPendingOrder);
+  const [trackedOrderIntent, setTrackedOrderIntent] = useState<TrackedOrderIntent | null>(readTrackedOrder);
+  const [trackedOrder, setTrackedOrder] = useState<KioskOrderTracking | null>(null);
+  const [trackingMessage, setTrackingMessage] = useState('');
 
   // Mobile cart sheet
   const [mobileCartOpen, setMobileCartOpen] = useState(false);
@@ -83,16 +140,33 @@ export function Kiosk() {
     try {
       setIsLoading(true);
       setLoadingError(null);
-      const [categoriesData, menuData, mesa, promotionsData] = await Promise.all([
+      const [categoriesData, menuData, mesa] = await Promise.all([
         catalogService.listPublicCategories(signal),
         catalogService.listPublicMenu(signal),
-        mesa_id ? fetchMesaPublic(mesa_id) : Promise.resolve(null),
-        // Si falla, el menú funciona igual, solo sin ofertas
-        fetchActivePromotions().catch(() => [] as Promotion[]),
+        mesa_id ? cafeTablesService.getPublicTable(mesa_id, signal) : Promise.resolve(null),
       ]);
       setCategories(toKioskCategories(categoriesData));
       setProducts(toKioskProducts(menuData));
-      setPromotions(promotionsData);
+      const savedIntent = readPendingOrder();
+      if (savedIntent && mesa_id === savedIntent.tableId) {
+        const productsById = new Map(toKioskProducts(menuData).map(product => [String(product.id), product]));
+        const recoveredCart: CartItem[] = savedIntent.items.flatMap(line => {
+          const product = productsById.get(line.productId);
+          return product ? [{
+            lineId: newLineId(),
+            product,
+            quantity: line.quantity,
+            subtotal: product.price * line.quantity,
+            ...(line.notes ? { notes: line.notes } : {}),
+          }] : [];
+        });
+        if (recoveredCart.length === savedIntent.items.length) {
+          setPendingOrder(savedIntent);
+          setCart(recoveredCart);
+        }
+      }
+      const savedTracking = readTrackedOrder();
+      if (savedTracking && mesa_id === savedTracking.tableId) setTrackedOrderIntent(savedTracking);
 
       if (mesa_id) {
         if (mesa) {
@@ -121,6 +195,50 @@ export function Kiosk() {
   }, [loadData]);
 
   useEffect(() => {
+    if (!trackedOrderIntent || trackedOrderIntent.tableId !== resolvedMesaId) return;
+    let stopped = false;
+    let inFlight = false;
+    let timer = 0;
+    const updateTrackedOrder = async () => {
+      if (stopped || inFlight) return;
+      inFlight = true;
+      try {
+        const result = await cafeOrdersService.getKioskOrderStatus(trackedOrderIntent.key);
+        if (stopped) return;
+        if (!result) {
+          setTrackingMessage('No encontramos este pedido para seguimiento. Puedes consultar al personal.');
+          stopped = true;
+          window.clearInterval(timer);
+          return;
+        }
+        setTrackedOrder(result);
+        setTrackingMessage('');
+        if (result.status === 'served' || result.status === 'cancelled') {
+          stopped = true;
+          window.clearInterval(timer);
+        }
+      } catch (cause) {
+        if (stopped) return;
+        if (cause instanceof ApiError && cause.code === 'TRACKING_NOT_CONFIGURED') {
+          setTrackingMessage('El pedido sí se creó, pero el seguimiento aún requiere habilitar la migración segura en el servidor.');
+          stopped = true;
+          window.clearInterval(timer);
+        } else {
+          setTrackingMessage(ordersErrorMessage(cause));
+        }
+      } finally {
+        inFlight = false;
+      }
+    };
+    timer = window.setInterval(() => { void updateTrackedOrder(); }, 10_000);
+    void updateTrackedOrder();
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+    };
+  }, [resolvedMesaId, trackedOrderIntent]);
+
+  useEffect(() => {
     if (!showSplash) return;
     const fadeTimer = setTimeout(() => setFadeOutSplash(true), 2000);
     const hideTimer = setTimeout(() => {
@@ -135,7 +253,7 @@ export function Kiosk() {
 
   const filteredProducts = useMemo(() => {
     return products.filter(product => {
-      const categoryMatch = selectedCategory === null || product.category_id === selectedCategory;
+      const categoryMatch = selectedCategory === null || String(product.category_id) === String(selectedCategory);
       const searchMatch = searchTerm === '' ||
         product.name.toLowerCase().includes(searchTerm.toLowerCase());
       return categoryMatch && searchMatch;
@@ -153,6 +271,11 @@ export function Kiosk() {
   }, [categories, products]);
 
   function handleAddToCart(product: Product) {
+    const existingItem = cart.find(item => item.product.id === product.id && !item.notes);
+    if (existingItem && existingItem.quantity >= 99) {
+      setError('La cantidad máxima por línea es 99. Divide el pedido si necesitas más.');
+      return;
+    }
     setCart(currentCart => {
       // Se suma a la línea del mismo producto que NO tenga comentario. Si esa línea ya tiene un
       // comentario, se crea una línea nueva para no mezclar (ej: un café con azúcar y otro sin).
@@ -171,6 +294,11 @@ export function Kiosk() {
   }
 
   function handleIncreaseQuantity(lineId: string) {
+    const line = cart.find(item => item.lineId === lineId);
+    if (line?.quantity && line.quantity >= 99) {
+      setError('La cantidad máxima por línea es 99. Divide el pedido si necesitas más.');
+      return;
+    }
     setCart(currentCart =>
       currentCart.map(item =>
         item.lineId === lineId
@@ -178,6 +306,7 @@ export function Kiosk() {
           : item
       )
     );
+    setError(null);
   }
 
   function handleDecreaseQuantity(lineId: string) {
@@ -188,10 +317,12 @@ export function Kiosk() {
           : item
       )
     );
+    setError(null);
   }
 
   function handleRemoveFromCart(lineId: string) {
     setCart(currentCart => currentCart.filter(item => item.lineId !== lineId));
+    setError(null);
   }
 
   // Comentario del cliente sobre un producto (ej: "con 2 cucharadas de azúcar")
@@ -199,56 +330,112 @@ export function Kiosk() {
     setCart(currentCart =>
       currentCart.map(item => (item.lineId === lineId ? { ...item, notes } : item))
     );
+    setError(null);
   }
 
-  async function handleConfirmOrder() {
-    if (cart.length === 0) return;
+  async function handleConfirmOrder(retryAmbiguous = false) {
+    if (import.meta.env.DEV) {
+      console.info('[Kiosco órdenes] clic en confirmar', {
+        cartItems: cart.length,
+        mesaIdentificada: Boolean(resolvedMesaId),
+        mesaId: resolvedMesaId,
+        retryAmbiguous,
+        processing: isProcessing,
+      });
+    }
+    if (cart.length === 0) {
+      if (import.meta.env.DEV) console.warn('[Kiosco órdenes] envío detenido: carrito vacío');
+      return;
+    }
 
     if (!resolvedMesaId) {
+      if (import.meta.env.DEV) console.warn('[Kiosco órdenes] envío detenido: no hay UUID de mesa resuelto');
       setError('ID de mesa inválido. Por favor escanea el código QR de nuevo.');
       return;
     }
 
+    const items: CreateOrderLine[] = cart.map(item => ({
+      productId: String(item.product.id),
+      quantity: item.quantity,
+      notes: item.notes?.trim() || null,
+    }));
+    if (pendingOrder && (pendingOrder.tableId !== resolvedMesaId || JSON.stringify(pendingOrder.items) !== JSON.stringify(items))) {
+      if (import.meta.env.DEV) console.warn('[Kiosco órdenes] envío detenido: el carrito no coincide con el envío pendiente');
+      setError('Hay un envío anterior cuyo resultado no se confirmó. Restaura exactamente el mismo carrito para reintentar; no cambies la intención hasta resolverlo.');
+      return;
+    }
+    const intent = pendingOrder ?? { tableId: resolvedMesaId, items, key: crypto.randomUUID() };
+    if (retryAmbiguous && !pendingOrder) {
+      if (import.meta.env.DEV) console.warn('[Kiosco órdenes] reintento detenido: no existe envío pendiente');
+      return;
+    }
+    if (import.meta.env.DEV) {
+      console.info('[Kiosco órdenes] intención de envío', {
+        endpoint: '/rest/v1/rpc/create_public_order',
+        method: 'POST',
+        body: {
+          p_table_id: intent.tableId,
+          p_items: items.map(item => ({
+            product_id: item.productId,
+            quantity: item.quantity,
+            notes: item.notes,
+          })),
+          p_idempotency_key: '[oculta]',
+        },
+      });
+    }
+    if (!pendingOrder) {
+      try { sessionStorage.setItem(PENDING_ORDER_KEY, JSON.stringify(intent)); } catch { /* Se conserva en memoria mientras esta vista exista. */ }
+      setPendingOrder(intent);
+    }
     setIsProcessing(true);
     setError(null);
 
     try {
-      // El servidor calcula precios y promociones; aquí solo se envía qué y cuántos (+ comentario)
-      const order = {
-        mesa_id: resolvedMesaId,
-        items: cart.map(item => ({
-          product_id: item.product.id,
-          quantity: item.quantity,
-          notes: item.notes?.trim() || undefined,
-        })),
-      };
-
-      const result = await createOrder(order);
+      const orderId = await cafeOrdersService.createOrder(intent.tableId, intent.items, intent.key);
+      const trackedIntent = { tableId: intent.tableId, key: intent.key, orderId };
+      try { sessionStorage.setItem(TRACKED_ORDER_KEY, JSON.stringify(trackedIntent)); } catch { /* Seguimiento en memoria mientras viva esta vista. */ }
+      setTrackedOrderIntent(trackedIntent);
+      setTrackedOrder({
+        orderId,
+        status: 'pending',
+        createdAt: new Date().toISOString(),
+        items: cart.map(item => ({ productName: item.product.name, quantity: item.quantity })),
+      });
+      setTrackingMessage('');
+      try { sessionStorage.removeItem(PENDING_ORDER_KEY); } catch { /* La RPC ya confirmó la creación. */ }
+      setPendingOrder(null);
       setOrderSuccess(true);
       setCart([]);
       setMobileCartOpen(false);
-
-      // El cliente permanece en el menú; el personal ve y gestiona el pedido desde su panel.
-      void result;
-      setTimeout(() => setOrderSuccess(false), 5000);
+      setTimeout(() => setOrderSuccess(false), 7000);
     } catch (e) {
-      // Si falta inventario el servidor lo explica (ej: "No hay suficiente inventario: Leche para ...")
-      const message = e instanceof Error ? e.message : '';
-      setError(message.startsWith('No hay suficiente inventario')
-        ? `${message}. Ajusta tu pedido e intenta de nuevo.`
-        : 'Error al crear el pedido. Por favor intenta de nuevo.');
-      // Puede que algo se haya agotado: se refresca lo disponible en el menú
-      catalogService.listPublicMenu()
-        .then(menu => setProducts(toKioskProducts(menu)))
-        .catch(() => { /* se mantiene el menú actual */ });
+      const ambiguous = e instanceof ApiError && (e.status === 0 || e.status >= 500);
+      if (!ambiguous) {
+        try { sessionStorage.removeItem(PENDING_ORDER_KEY); } catch { /* La clave ya no es reintentable. */ }
+        setPendingOrder(null);
+      }
+      setError(ambiguous
+        ? 'No pudimos confirmar el resultado del envío. Conservamos el pedido y su clave; reintenta explícitamente sin modificar el carrito.'
+        : ordersErrorMessage(e));
+      if (e instanceof ApiError && ['PRODUCT_UNAVAILABLE', 'PRODUCT_RECIPE_HAS_INACTIVE_INGREDIENT', 'INSUFFICIENT_PRODUCT_STOCK', 'INSUFFICIENT_INGREDIENT_STOCK'].includes(e.code ?? '')) {
+        catalogService.listPublicMenu().then(menu => setProducts(toKioskProducts(menu))).catch(() => {});
+      }
     } finally {
       setIsProcessing(false);
     }
   }
 
+  function clearTrackedOrder() {
+    try { sessionStorage.removeItem(TRACKED_ORDER_KEY); } catch { /* Se limpia el estado de la vista aunque storage esté bloqueado. */ }
+    setTrackedOrderIntent(null);
+    setTrackedOrder(null);
+    setTrackingMessage('');
+  }
+
   // Cart totals for the floating button
   const cartItemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
-  const pricing = calculateCartPricing(cart, promotions);
+  const pricing = calculateCartPricing(cart, []);
   const cartTotal = pricing.total;
 
   if (isLoading) {
@@ -296,20 +483,34 @@ export function Kiosk() {
       {orderSuccess && (
         <div className="order-success-notification">
           <div className="success-icon" style={{ display: 'flex', justifyContent: 'center' }}><CheckCircle size={32} color="#fff" /></div>
-          <p className="success-message">¡Pedido enviado! Un mesero lo atenderá en tu mesa.</p>
+          <p className="success-message">Pedido recibido y pendiente de confirmación por el personal.</p>
         </div>
       )}
-      {error && (
-        <div className="order-error-notification">
-          <div className="error-icon" style={{ display: 'flex', justifyContent: 'center' }}><AlertTriangle size={24} color="#fff" /></div>
-          <p className="error-message">{error}</p>
-        </div>
-      )}
-
       <main className="kiosk-main">
-        <PromoBanner promotions={promotions} />
+        {pendingOrder && <div role="status" className="order-error-notification">Hay un envío pendiente de recuperación. Reintenta solo con el mismo carrito y la misma clave.</div>}
+        {trackedOrderIntent?.tableId === resolvedMesaId && <section className="kiosk-order-tracking" aria-live="polite" aria-labelledby="kiosk-order-tracking-title">
+          <div className="kiosk-order-tracking-header">
+            <div>
+              <h2 id="kiosk-order-tracking-title">Tu pedido</h2>
+              <p>Pedido · {trackedOrder?.orderId.slice(0, 8) ?? trackedOrderIntent.orderId.slice(0, 8)}</p>
+            </div>
+            {trackedOrder && <strong className={`kiosk-order-status kiosk-order-status-${trackedOrder.status}`}>
+              {ORDER_STATUS_LABELS[trackedOrder.status]}
+            </strong>}
+          </div>
+          {trackedOrder && <ul>
+            {trackedOrder.items.map((item, index) => <li key={`${item.productName}-${index}`}>
+              <span>{item.productName}</span><span>×{item.quantity}</span>
+            </li>)}
+          </ul>}
+          {!trackedOrder && !trackingMessage && <p role="status">Consultando el estado del pedido…</p>}
+          {trackingMessage && <p role="status" className="kiosk-order-tracking-message">{trackingMessage}</p>}
+          {trackedOrder && (trackedOrder.status === 'served' || trackedOrder.status === 'cancelled')
+            && <button type="button" onClick={clearTrackedOrder}>Ocultar pedido</button>}
+        </section>}
+        <PromoBanner promotions={[]} />
         <SearchBar searchTerm={searchTerm} onSearchChange={setSearchTerm} />
-        <ProductGrid products={filteredProducts} onAddToCart={handleAddToCart} promotions={promotions} />
+        <ProductGrid products={filteredProducts} onAddToCart={handleAddToCart} promotions={[]} />
       </main>
 
       {/* Desktop cart — always visible in sidebar */}
@@ -323,7 +524,9 @@ export function Kiosk() {
           onRemoveFromCart={handleRemoveFromCart}
           onUpdateNotes={handleUpdateNotes}
           onConfirmOrder={handleConfirmOrder}
+          errorMessage={error}
           isProcessing={isProcessing}
+          onRetryAmbiguous={pendingOrder ? () => handleConfirmOrder(true) : undefined}
         />
       </aside>
 
@@ -366,7 +569,9 @@ export function Kiosk() {
                 onRemoveFromCart={handleRemoveFromCart}
                 onUpdateNotes={handleUpdateNotes}
                 onConfirmOrder={handleConfirmOrder}
+                errorMessage={error}
                 isProcessing={isProcessing}
+                onRetryAmbiguous={pendingOrder ? () => handleConfirmOrder(true) : undefined}
               />
             </div>
           </div>

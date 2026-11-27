@@ -10,6 +10,7 @@ import { InputTextarea } from 'primereact/inputtextarea';
 import { Dropdown } from 'primereact/dropdown';
 import { Message } from 'primereact/message';
 import { Tag } from 'primereact/tag';
+import { TabPanel, TabView } from 'primereact/tabview';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../auth/AuthContext';
 import { adminCatalogErrorMessage, createAdminCatalogService, type AdminCategory, type AdminProduct } from '../../services/adminCatalog';
@@ -39,6 +40,12 @@ export function AdminCatalogPage() {
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ name: '', description: '', categoryId: '', price: null as number | null, active: true });
   const [fieldError, setFieldError] = useState('');
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [uploadedImageUrl, setUploadedImageUrl] = useState<string | null>(null);
+  const imagePreview = useMemo(() => imageFile ? URL.createObjectURL(imageFile) : uploadedImageUrl, [imageFile, uploadedImageUrl]);
+  useEffect(() => () => {
+    if (imagePreview?.startsWith('blob:')) URL.revokeObjectURL(imagePreview);
+  }, [imagePreview]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -67,11 +74,15 @@ export function AdminCatalogPage() {
   function openCategory(value?: AdminCategory) {
     setEditing({ kind: 'category', value });
     setForm({ name: value?.name ?? '', description: value?.description ?? '', categoryId: '', price: null, active: value?.active ?? true });
+    setImageFile(null);
+    setUploadedImageUrl(null);
     setFieldError('');
   }
   function openProduct(value?: AdminProduct) {
     setEditing({ kind: 'product', value });
     setForm({ name: value?.name ?? '', description: value?.description ?? '', categoryId: value?.categoryId ?? '', price: value?.price ?? null, active: value?.active ?? true });
+    setImageFile(null);
+    setUploadedImageUrl(value?.imageUrl ?? null);
     setFieldError('');
   }
   async function save() {
@@ -93,13 +104,25 @@ export function AdminCatalogPage() {
           setFieldError('El precio es obligatorio.');
           return;
         }
-        const input = { categoryId: form.categoryId, name: form.name, description: form.description, price: form.price, imageUrl: editing.value?.imageUrl ?? null, active: form.active };
+        let imageUrl = uploadedImageUrl;
+        if (imageFile) {
+          imageUrl = await service.uploadProductImage(imageFile);
+          setUploadedImageUrl(imageUrl);
+          setImageFile(null);
+        }
+        const input = { categoryId: form.categoryId, name: form.name, description: form.description, price: form.price, imageUrl, active: form.active };
         if (editing.value) await service.updateProduct(editing.value.id, input);
         else await service.createProduct(input);
       }
       setEditing(null);
+      setImageFile(null);
+      setUploadedImageUrl(null);
       await load();
     } catch (cause) {
+      if (cause instanceof ApiError && cause.status === 401) {
+        await signOut();
+        navigate('/admin/login', { replace: true });
+      }
       setFieldError(adminCatalogErrorMessage(cause));
     } finally {
       setSaving(false);
@@ -134,35 +157,46 @@ export function AdminCatalogPage() {
   const editCategory = editing?.kind === 'category';
   return <section className="flex flex-column gap-3">
     <div className="flex align-items-center justify-content-between flex-wrap gap-2">
-      <div><h2 className="mt-0 mb-1">Productos y categorías</h2><p className="mt-0 mb-0">Administra el catálogo. El stock se gestiona desde Inventario.</p></div>
-      <div className="flex gap-2"><Button label="Nueva categoría" icon="pi pi-tag" outlined onClick={() => openCategory()} /><Button label="Nuevo producto" icon="pi pi-plus" onClick={() => openProduct()} /></div>
+      <div><h2 className="mt-0 mb-1">Catálogo</h2><p className="mt-0 mb-0">Administra productos y categorías. El stock se gestiona desde Inventario.</p></div>
     </div>
     {error && <Message severity="error" text={error} />}
-    <section aria-labelledby="categories-heading">
-      <h3 id="categories-heading">Categorías</h3>
-      <DataTable value={categories} dataKey="id" size="small" stripedRows responsiveLayout="scroll" loading={loading} emptyMessage="No hay categorías.">
-        <Column field="name" header="Nombre" />
-        <Column field="description" header="Descripción" body={(row: AdminCategory) => row.description || '—'} />
-        <Column header="Estado" body={(row: AdminCategory) => <Tag value={row.active ? 'Activa' : 'Inactiva'} severity={row.active ? 'success' : 'secondary'} />} />
-        <Column header="Acciones" body={(row: AdminCategory) => <span className="flex gap-2">
-          <Button icon="pi pi-pencil" aria-label={`Editar ${row.name}`} text onClick={() => openCategory(row)} />
-          <Button icon={row.active ? 'pi pi-ban' : 'pi pi-check'} aria-label={row.active ? `Desactivar ${row.name}` : `Activar ${row.name}`} text onClick={() => void setCategoryActive(row, !row.active)} />
-        </span>} />
-      </DataTable>
-    </section>
-    <section aria-labelledby="products-heading">
-      <h3 id="products-heading">Productos</h3>
-      <DataTable value={products} dataKey="id" size="small" stripedRows responsiveLayout="scroll" loading={loading} emptyMessage="No hay productos.">
-        <Column field="name" header="Nombre" />
-        <Column header="Categoría" body={(row: AdminProduct) => categories.find(category => category.id === row.categoryId)?.name ?? 'No disponible'} />
-        <Column header="Precio" body={(row: AdminProduct) => new Intl.NumberFormat('es-SV', { style: 'currency', currency: 'USD' }).format(row.price)} />
-        <Column header="Estado" body={(row: AdminProduct) => <Tag value={row.active ? 'Activo' : 'Inactivo'} severity={row.active ? 'success' : 'secondary'} />} />
-        <Column header="Acciones" body={(row: AdminProduct) => <span className="flex gap-2">
-          <Button icon="pi pi-pencil" aria-label={`Editar ${row.name}`} text onClick={() => openProduct(row)} />
-          <Button icon={row.active ? 'pi pi-ban' : 'pi pi-check'} aria-label={row.active ? `Desactivar ${row.name}` : `Activar ${row.name}`} text onClick={() => void setProductActive(row, !row.active)} />
-        </span>} />
-      </DataTable>
-    </section>
+    <TabView>
+      <TabPanel header="Productos">
+        <section aria-labelledby="products-heading" className="flex flex-column gap-3">
+          <div className="flex align-items-center justify-content-between flex-wrap gap-2">
+            <div><h3 id="products-heading" className="mt-0 mb-1">Productos</h3><p className="mt-0 mb-0">Gestiona el catálogo y sus imágenes.</p></div>
+            <Button label="Nuevo producto" icon="pi pi-plus" onClick={() => openProduct()} />
+          </div>
+          <DataTable value={products} dataKey="id" size="small" stripedRows responsiveLayout="scroll" loading={loading} emptyMessage="No hay productos.">
+            <Column field="name" header="Nombre" />
+            <Column header="Categoría" body={(row: AdminProduct) => categories.find(category => category.id === row.categoryId)?.name ?? 'No disponible'} />
+            <Column header="Precio" body={(row: AdminProduct) => new Intl.NumberFormat('es-SV', { style: 'currency', currency: 'USD' }).format(row.price)} />
+            <Column header="Estado" body={(row: AdminProduct) => <Tag value={row.active ? 'Activo' : 'Inactivo'} severity={row.active ? 'success' : 'secondary'} />} />
+            <Column header="Acciones" body={(row: AdminProduct) => <span className="flex gap-2">
+              <Button icon="pi pi-pencil" aria-label={`Editar ${row.name}`} text onClick={() => openProduct(row)} />
+              <Button icon={row.active ? 'pi pi-ban' : 'pi pi-check'} aria-label={row.active ? `Desactivar ${row.name}` : `Activar ${row.name}`} text onClick={() => void setProductActive(row, !row.active)} />
+            </span>} />
+          </DataTable>
+        </section>
+      </TabPanel>
+      <TabPanel header="Categorías">
+        <section aria-labelledby="categories-heading" className="flex flex-column gap-3">
+          <div className="flex align-items-center justify-content-between flex-wrap gap-2">
+            <div><h3 id="categories-heading" className="mt-0 mb-1">Categorías</h3><p className="mt-0 mb-0">Organiza los productos del catálogo.</p></div>
+            <Button label="Nueva categoría" icon="pi pi-tag" outlined onClick={() => openCategory()} />
+          </div>
+          <DataTable value={categories} dataKey="id" size="small" stripedRows responsiveLayout="scroll" loading={loading} emptyMessage="No hay categorías.">
+            <Column field="name" header="Nombre" />
+            <Column field="description" header="Descripción" body={(row: AdminCategory) => row.description || '—'} />
+            <Column header="Estado" body={(row: AdminCategory) => <Tag value={row.active ? 'Activa' : 'Inactiva'} severity={row.active ? 'success' : 'secondary'} />} />
+            <Column header="Acciones" body={(row: AdminCategory) => <span className="flex gap-2">
+              <Button icon="pi pi-pencil" aria-label={`Editar ${row.name}`} text onClick={() => openCategory(row)} />
+              <Button icon={row.active ? 'pi pi-ban' : 'pi pi-check'} aria-label={row.active ? `Desactivar ${row.name}` : `Activar ${row.name}`} text onClick={() => void setCategoryActive(row, !row.active)} />
+            </span>} />
+          </DataTable>
+        </section>
+      </TabPanel>
+    </TabView>
     <Dialog visible={editing !== null} header={`${editing?.value ? 'Editar' : 'Nueva'} ${editCategory ? 'categoría' : 'producto'}`} modal onHide={() => !saving && setEditing(null)} footer={dialogFooter} className="w-11 md:w-8 lg:w-6" contentStyle={{ maxHeight: '75vh', overflow: 'auto' }}>
       <div className="p-fluid flex flex-column gap-3">
         {fieldError && <Message severity="error" text={fieldError} />}
@@ -171,7 +205,31 @@ export function AdminCatalogPage() {
         {!editCategory && <>
           <div className="field"><label htmlFor="admin-category">Categoría *</label><Dropdown inputId="admin-category" value={form.categoryId} options={categories.filter(item => item.active).map(item => ({ label: item.name, value: item.id }))} onChange={event => setForm(current => ({ ...current, categoryId: event.value }))} placeholder="Selecciona una categoría" /></div>
           <div className="field"><label htmlFor="admin-price">Precio *</label><InputNumber inputId="admin-price" value={form.price} onValueChange={event => setForm(current => ({ ...current, price: event.value ?? null }))} mode="currency" currency="USD" locale="es-SV" min={0.01} minFractionDigits={2} maxFractionDigits={2} /></div>
-          {editing?.value && <small>La imagen existente se conserva. La carga/edición de URL está deshabilitada hasta definir la política de Storage.</small>}
+          <div className="field">
+            <label htmlFor="admin-product-image">Imagen del producto</label>
+            <input
+              id="admin-product-image"
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              aria-describedby="admin-product-image-help"
+              disabled={saving}
+              onChange={event => {
+                const file = event.target.files?.[0] ?? null;
+                setImageFile(file);
+                setFieldError('');
+              }}
+            />
+            <small id="admin-product-image-help">JPG, PNG o WebP. Máximo 5 MB.</small>
+            {imagePreview && <div className="flex align-items-center gap-2">
+              <img src={imagePreview} alt={`Vista previa de ${form.name || 'producto'}`} width={88} height={88} style={{ objectFit: 'cover', borderRadius: '.5rem' }} />
+              <Button type="button" label="Quitar imagen" icon="pi pi-times" text severity="secondary" disabled={saving} onClick={() => {
+                setImageFile(null);
+                setUploadedImageUrl(null);
+                const input = document.getElementById('admin-product-image') as HTMLInputElement | null;
+                if (input) input.value = '';
+              }} />
+            </div>}
+          </div>
         </>}
         <div className="flex align-items-center gap-2"><InputSwitch inputId="admin-active" checked={form.active} onChange={event => setForm(current => ({ ...current, active: event.value }))} /><label htmlFor="admin-active">Activo</label></div>
       </div>

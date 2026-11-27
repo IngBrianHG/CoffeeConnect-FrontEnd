@@ -15,6 +15,8 @@ interface CartProps {
   /** Guarda el comentario del cliente para esa línea (ej: "con 2 cucharadas de azúcar") */
   onUpdateNotes: (lineId: string, notes: string) => void;
   onConfirmOrder: () => void;
+  onRetryAmbiguous?: () => void;
+  errorMessage?: string | null;
   isProcessing: boolean;
 }
 
@@ -32,6 +34,8 @@ export function Cart({
   onRemoveFromCart,
   onUpdateNotes,
   onConfirmOrder,
+  onRetryAmbiguous,
+  errorMessage,
   isProcessing
 }: CartProps) {
   // Líneas cuyo campo de comentario fue abierto manualmente (las que ya tienen texto siempre se muestran)
@@ -39,6 +43,9 @@ export function Cart({
 
   const itemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
   const isOrderValid = cart.length > 0 && mesaName !== '';
+  const disabledReason = cart.length > 0 && !mesaName
+    ? 'No se puede enviar: la mesa aún no está identificada.'
+    : null;
 
   function openNoteField(lineId: string) {
     setOpenNotes(prev => new Set(prev).add(lineId));
@@ -145,29 +152,17 @@ export function Cart({
             {mesaName || 'Mesa no identificada'}
           </div>
 
-          {pricing.discountTotal > 0 && (
-            <div className="cart-discount-summary">
-              <div className="cart-subtotal" style={{ marginBottom: 0 }}>
-                <span className="subtotal-label">Subtotal</span>
-                <span className="subtotal-value">${pricing.subtotal.toFixed(2)}</span>
-              </div>
-              {pricing.applied.map(a => (
-                <div key={a.promoId} className="cart-discount-row">
-                  <span><Gift size={13} /> {a.name}</span>
-                  <span>-${a.discount.toFixed(2)}</span>
-                </div>
-              ))}
-            </div>
-          )}
-
           <div className="cart-total">
-            <span className="total-label">Total:</span>
+            <span className="total-label">Estimado (sin promociones):</span>
             <span className="total-value">${pricing.total.toFixed(2)}</span>
           </div>
+          {errorMessage && <div className="cart-submit-error" role="alert">{errorMessage}</div>}
           <button
+            type="button"
             className="confirm-order-btn"
-            onClick={onConfirmOrder}
+            onClick={() => onConfirmOrder()}
             disabled={!isOrderValid || isProcessing}
+            aria-describedby={disabledReason ? 'confirm-order-disabled-reason' : undefined}
           >
             {isProcessing ? (
               <>
@@ -180,6 +175,10 @@ export function Cart({
               </span>
             )}
           </button>
+          {disabledReason && <div id="confirm-order-disabled-reason" className="cart-submit-error" role="status">{disabledReason}</div>}
+          {onRetryAmbiguous && <button type="button" className="confirm-order-btn" onClick={onRetryAmbiguous} disabled={isProcessing}>
+            Reintentar envío pendiente
+          </button>}
         </div>
       )}
     </div>

@@ -12,6 +12,7 @@ function service(handler) {
   const calls = [];
   const client = {
     get: async () => null,
+    invoke: async () => null,
     request: async (resource, options) => {
       calls.push({ resource, options });
       return handler(resource, options, calls.length);
@@ -84,6 +85,32 @@ test('retries one 401 with refreshed user token and translates safe errors', asy
   assert.match(adminCatalogErrorMessage(new Error('network')), /conectar/);
 });
 
+test('uploads product images through the authenticated Edge Function and validates file type/size', async () => {
+  const calls = [];
+  const client = {
+    get: async () => null,
+    request: async () => null,
+    invoke: async (name, body, token) => {
+      calls.push({ name, body, token });
+      return { imageUrl: 'https://coffee.example/storage/v1/object/public/product-images/products/33333333-3333-4333-8333-333333333333.jpg' };
+    },
+  };
+  const api = createAdminCatalogService(client, () => 'admin-jwt', async () => null);
+  const file = new File([new Uint8Array([0xff, 0xd8, 0xff])], 'coffee.jpg', { type: 'image/jpeg' });
+  assert.equal(await api.uploadProductImage(file), 'https://coffee.example/storage/v1/object/public/product-images/products/33333333-3333-4333-8333-333333333333.jpg');
+  assert.equal(calls[0].name, 'product-image-upload');
+  assert.equal(calls[0].body.get('file'), file);
+  assert.equal(calls[0].token, 'admin-jwt');
+  await assert.rejects(api.uploadProductImage(new File(['bad'], 'bad.svg', { type: 'image/svg+xml' })), { code: 'VALIDATION_ERROR' });
+  await assert.rejects(api.uploadProductImage(new File([new Uint8Array(5 * 1024 * 1024 + 1)], 'large.png', { type: 'image/png' })), { code: 'VALIDATION_ERROR' });
+  const badUrlApi = createAdminCatalogService({
+    get: async () => null,
+    request: async () => null,
+    invoke: async () => ({ imageUrl: 'https://untrusted.example/image.jpg' }),
+  }, () => 'admin-jwt', async () => null);
+  await assert.rejects(badUrlApi.uploadProductImage(file), { code: 'INVALID_RESPONSE' });
+});
+
 test('uses the simulated fetch transport with publishable/user credentials and PostgREST path', async () => {
   const seen = [];
   const client = createHttpClient({
@@ -102,4 +129,24 @@ test('uses the simulated fetch transport with publishable/user credentials and P
   assert.equal(seen[0].init.headers.Authorization, 'Bearer user-jwt');
   assert.equal(seen[0].init.headers.Prefer, 'return=minimal');
   assert.equal(seen[0].init.body.includes('"stock"'), false);
+});
+
+test('invokes Edge Functions with publishable key and user JWT without setting multipart content-type', async () => {
+  const seen = [];
+  const client = createHttpClient({
+    baseUrl: 'https://coffee.example',
+    publicKey: 'publishable-key',
+    fetchImpl: async (url, init) => {
+      seen.push({ url: String(url), init });
+      return Response.json({ imageUrl: 'https://coffee.example/image.jpg' }, { status: 201 });
+    },
+  });
+  const form = new FormData();
+  form.append('file', new File(['image'], 'coffee.jpg', { type: 'image/jpeg' }));
+  await client.invoke('product-image-upload', form, 'user-jwt');
+  assert.equal(seen[0].url, 'https://coffee.example/functions/v1/product-image-upload');
+  assert.equal(seen[0].init.headers.apikey, 'publishable-key');
+  assert.equal(seen[0].init.headers.Authorization, 'Bearer user-jwt');
+  assert.equal(seen[0].init.headers['Content-Type'], undefined);
+  assert.equal(seen[0].init.body, form);
 });

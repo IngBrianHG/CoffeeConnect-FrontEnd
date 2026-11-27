@@ -58,16 +58,6 @@ export async function fetchMesas(): Promise<Mesa[]> {
   return extractData<Mesa>(rawData);
 }
 
-/** Kiosco (público): solo devuelve el nombre de SU mesa a partir del identificador del QR */
-export async function fetchMesaPublic(mesa_id: string): Promise<Pick<Mesa, 'id' | 'name'> | null> {
-  try {
-    const raw = await apiFetch(`/mesas/${encodeURIComponent(mesa_id)}/public`);
-    return (raw && typeof raw === 'object' && 'data' in raw) ? (raw as { data: Pick<Mesa, 'id' | 'name'> }).data : null;
-  } catch {
-    return null;
-  }
-}
-
 export async function payTableOrders(mesa_id: string, payment_method: string) {
   return await apiFetch(`/pagos/mesa/${mesa_id}`, {
     method: 'POST',

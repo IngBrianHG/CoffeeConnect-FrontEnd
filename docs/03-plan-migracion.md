@@ -34,7 +34,7 @@ El flujo REST está implementado en `src/services/auth.ts`, `src/auth/AuthContex
 
 ## Etapa 4 — Módulos en orden de dependencia
 
-La secuencia de contratos frontend está en `frontend/contracts/README.md`. Los contratos 01 (Auth/sesión) y 02 (transporte/catálogo) ya están redactados e implementados parcialmente; 03 (usuarios/roles) y 04 (inventario/recetas) son los siguientes conforme a las etapas 4.1 y 4.2. Completar la integración del kiosco y la validación de staging antes de cerrar el 02.
+La secuencia de contratos frontend está en `frontend/contracts/README.md`. Los contratos 03 (usuarios/roles), 04 (inventario/recetas) y 05 (productos/categorías/promociones) ya tienen implementación frontend; sus integraciones y criterios de aceptación deben verificarse en staging. El contrato 06 (mesas/sesiones, etapa 4.4) tiene implementación frontend local, pero su cierre sigue pendiente de staging y de resolver la brecha SQL de desactivación con sesión abierta. El contrato 07 (órdenes kiosco/POS, etapa 4.5) ya está definido en `contracts/07-ordenes-kiosco-pos.md`; implementarlo después de cerrar esos pendientes de 06. Completar también la integración del kiosco y la validación de staging antes de cerrar el contrato 02.
 
 ### 4.1 Usuarios y roles
 
