@@ -55,7 +55,7 @@ export function Cart({
     <div className="cart">
       <div className="cart-header">
         <h2 className="cart-title" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}><ShoppingCart size={22} /> Carrito</h2>
-        <span className="cart-count">{itemCount} {itemCount === 1 ? 'item' : 'items'}</span>
+        <span className="cart-count" aria-live="polite">{itemCount} {itemCount === 1 ? 'artículo' : 'artículos'}</span>
       </div>
 
       <div className="cart-items">
@@ -86,7 +86,9 @@ export function Cart({
                   <div className="cart-item-controls">
                     <div className="quantity-controls">
                       <button
+                        type="button"
                         className="quantity-btn decrease"
+                        aria-label={`Disminuir cantidad de ${item.product.name}`}
                         onClick={() => onDecreaseQuantity(item.lineId)}
                         disabled={item.quantity <= 1}
                       >
@@ -94,7 +96,9 @@ export function Cart({
                       </button>
                       <span className="quantity-value">{item.quantity}</span>
                       <button
+                        type="button"
                         className="quantity-btn increase"
+                        aria-label={`Aumentar cantidad de ${item.product.name}`}
                         onClick={() => onIncreaseQuantity(item.lineId)}
                       >
                         <Plus size={14} />
@@ -105,7 +109,9 @@ export function Cart({
                       ${(line ? line.net : item.subtotal).toFixed(2)}
                     </div>
                     <button
+                      type="button"
                       className="remove-btn"
+                      aria-label={`Quitar ${item.product.name} del carrito`}
                       onClick={() => onRemoveFromCart(item.lineId)}
                       title="Eliminar"
                     >
@@ -118,6 +124,7 @@ export function Cart({
                     <div className="cart-item-notes">
                       <textarea
                         className="cart-item-notes-input"
+                        aria-label={`Nota para ${item.product.name}`}
                         rows={2}
                         maxLength={MAX_NOTE_LENGTH}
                         value={item.notes ?? ''}
@@ -128,7 +135,7 @@ export function Cart({
                       <span className="cart-item-notes-count">{(item.notes ?? '').length}/{MAX_NOTE_LENGTH}</span>
                     </div>
                   ) : (
-                    <button className="cart-item-notes-btn" onClick={() => openNoteField(item.lineId)}>
+                    <button type="button" className="cart-item-notes-btn" onClick={() => openNoteField(item.lineId)}>
                       <MessageSquarePlus size={15} /> Agregar comentario
                     </button>
                   )}
@@ -153,9 +160,10 @@ export function Cart({
           </div>
 
           <div className="cart-total">
-            <span className="total-label">Estimado (sin promociones):</span>
+            <span className="total-label">Total estimado del pedido</span>
             <span className="total-value">${pricing.total.toFixed(2)}</span>
           </div>
+          <p className="cart-estimate-note">Precio de catálogo. No es un cobro; el servidor confirma el total al recibir el pedido.</p>
           {errorMessage && <div className="cart-submit-error" role="alert">{errorMessage}</div>}
           <button
             type="button"

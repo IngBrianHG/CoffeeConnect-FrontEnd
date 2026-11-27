@@ -2,6 +2,7 @@ import type { Product } from '../types/Product';
 import type { Promotion } from '../types/Promotion';
 import { ProductCard } from './ProductCard';
 import { getProductPromos } from '../utils/promotions';
+import { SearchX } from 'lucide-react';
 
 interface ProductGridProps {
   products: Product[];
@@ -20,10 +21,10 @@ export function ProductGrid({ products, onAddToCart, promotions = [] }: ProductG
   
   if (safeProducts.length === 0) {
     return (
-      <div className="product-grid-empty">
-        <div className="empty-icon">🔍</div>
-        <p className="empty-message">No se encontraron productos</p>
-        <p className="empty-submessage">Intenta con otra búsqueda o categoría</p>
+        <div className="product-grid-empty" role="status">
+          <div className="empty-icon"><SearchX size={32} aria-hidden="true" /></div>
+          <p className="empty-message">No encontramos productos</p>
+          <p className="empty-submessage">Prueba otra búsqueda o selecciona una categoría diferente.</p>
       </div>
     );
   }

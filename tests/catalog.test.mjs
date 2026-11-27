@@ -13,12 +13,12 @@ test('catalog sends public requests to the configured REST root and maps only me
   const fetchImpl = async (url, options) => {
     requests.push({ url: new URL(url), options });
     if (new URL(url).pathname.endsWith('/categories')) {
-      return Response.json([{ id: CATEGORY_ID, name: 'Café', description: null }]);
+      return Response.json([{ id: CATEGORY_ID, name: 'Bebidas calientes', description: null, display_order: 20 }]);
     }
     return Response.json([{
       id: PRODUCT_ID,
       category_id: CATEGORY_ID,
-      category_name: 'Café',
+      category_name: 'Bebidas calientes',
       name: 'Latte',
       description: null,
       price: 3.5,
@@ -31,17 +31,17 @@ test('catalog sends public requests to the configured REST root and maps only me
   const categories = await catalog.listPublicCategories();
   const menu = await catalog.listPublicMenu();
 
-  assert.deepEqual(categories, [{ id: CATEGORY_ID, name: 'Café', description: null }]);
+  assert.deepEqual(categories, [{ id: CATEGORY_ID, name: 'Bebidas calientes', description: null, displayOrder: 20 }]);
   assert.deepEqual(menu, [{
     id: PRODUCT_ID,
     categoryId: CATEGORY_ID,
-    categoryName: 'Café',
+    categoryName: 'Bebidas calientes',
     name: 'Latte',
     description: null,
     price: 3.5,
     imageUrl: 'https://images.example/latte.png',
   }]);
-  assert.equal(requests[0].url.href, 'https://sample-project.supabase.co/rest/v1/categories?select=id%2Cname%2Cdescription&active=eq.true&order=name.asc');
+  assert.equal(requests[0].url.href, 'https://sample-project.supabase.co/rest/v1/categories?select=id%2Cname%2Cdescription%2Cdisplay_order&active=eq.true&order=display_order.asc%2Cname.asc');
   assert.equal(requests[1].url.href, 'https://sample-project.supabase.co/rest/v1/public_menu?select=id%2Ccategory_id%2Ccategory_name%2Cname%2Cdescription%2Cprice%2Cimage_url&order=name.asc');
   for (const { options } of requests) {
     assert.equal(options.headers.apikey, PUBLIC_KEY);

@@ -1,23 +1,17 @@
 import React from 'react';
+import { CircleHelp, RefreshCw } from 'lucide-react';
 import type { Category } from '../../types/Category';
 import { Sidebar } from './Sidebar';
-import { Coffee, IceCreamCone, Cake, Sandwich, UtensilsCrossed } from 'lucide-react';
+import { CategoryIcon } from './categoryIcons';
 
 interface KioskLayoutProps {
   categories: Category[];
   selectedCategory: number | null;
   onSelectCategory: (id: number | null) => void;
+  mesaName: string;
+  onRefresh: () => void;
+  isRefreshing: boolean;
   children: React.ReactNode;
-}
-
-function getCategoryIcon(categoryName: string) {
-  const name = categoryName.toLowerCase();
-  if (name.includes('pastel') || name.includes('tarta')) return <Cake size={14} />;
-  if (name.includes('postre') || name.includes('dulce') || name.includes('mousse') || name.includes('cheesecake')) return <Cake size={14} />;
-  if (name.includes('repostería') || name.includes('hojaldre') || name.includes('pan') || name.includes('snack') || name.includes('sandwich')) return <Sandwich size={14} />;
-  if (name.includes('caliente') || name.includes('café') || name.includes('bebida') || name.includes('té')) return <Coffee size={14} />;
-  if (name.includes('fría') || name.includes('frappé') || name.includes('helado')) return <IceCreamCone size={14} />;
-  return <UtensilsCrossed size={14} />;
 }
 
 /**
@@ -29,6 +23,9 @@ export function KioskLayout({
   categories,
   selectedCategory,
   onSelectCategory,
+  mesaName,
+  onRefresh,
+  isRefreshing,
   children,
 }: KioskLayoutProps) {
   return (
@@ -36,19 +33,31 @@ export function KioskLayout({
       {/* Header fijo */}
       <header className="kiosk-header">
         <div className="header-content">
-          <img src="/turron-logo.jpg" alt="TURRÓN Pastelería" className="logo" style={{ borderRadius: '50%', objectFit: 'cover', border: '2px solid #E0247D', background: '#fff' }} />
-          <h1 className="business-title">TURRÓN PASTELERÍA</h1>
+          <img src="/turron-logo.jpg" alt="" className="logo" />
+          <div className="kiosk-brand">
+            <h1 className="business-title">TURRÓN <span>Pastelería</span></h1>
+            <span className="kiosk-table-label">Mesa <strong>{mesaName}</strong></span>
+          </div>
+          <a className="kiosk-help-link" href="#kiosk-help">
+            <CircleHelp size={17} aria-hidden="true" />
+            <span>Ayuda</span>
+          </a>
+          <button type="button" className="kiosk-refresh-button" onClick={onRefresh} disabled={isRefreshing}>
+            <RefreshCw size={17} className={isRefreshing ? 'kiosk-refresh-spin' : ''} />
+            <span>{isRefreshing ? 'Actualizando' : 'Actualizar menú'}</span>
+          </button>
         </div>
       </header>
 
-      {/* Mobile category chips — visible solo en mobile */}
-      <div className="mobile-category-bar">
+      <nav className="mobile-category-bar" aria-label="Filtrar por categoría">
         <div className="mobile-category-scroll">
           <button
+            type="button"
             className={`mobile-category-chip ${selectedCategory === null ? 'active' : ''}`}
             onClick={() => onSelectCategory(null)}
+            aria-pressed={selectedCategory === null}
           >
-            <Cake size={14} />
+            <CategoryIcon name="Otros" size={14} />
             <span>Todos</span>
           </button>
           {Array.from(new Set(categories.map(c => c.id))).map(id => {
@@ -56,17 +65,19 @@ export function KioskLayout({
             if (!category) return null;
             return (
               <button
+                type="button"
                 key={category.id}
                 className={`mobile-category-chip ${selectedCategory === category.id ? 'active' : ''}`}
                 onClick={() => onSelectCategory(category.id)}
+                aria-pressed={selectedCategory === category.id}
               >
-                {getCategoryIcon(category.name)}
+                <CategoryIcon name={category.name} size={14} />
                 <span>{category.name}</span>
               </button>
             );
           })}
         </div>
-      </div>
+      </nav>
 
       {/* Cuerpo: sidebar + contenido */}
       <div className="kiosk-body">

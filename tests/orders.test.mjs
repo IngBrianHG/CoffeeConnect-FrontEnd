@@ -9,6 +9,8 @@ const orderId = '33333333-3333-4333-8333-333333333333';
 const productId = '44444444-4444-4444-8444-444444444444';
 const itemId = '55555555-5555-4555-8555-555555555555';
 const key = '66666666-6666-4666-8666-666666666666';
+const cancelledOrderId = '77777777-7777-4777-8777-777777777777';
+const secondItemId = '88888888-8888-4888-8888-888888888888';
 const stamp = '2026-11-26T12:00:00.000Z';
 const order = {
   id: orderId, table_session_id: sessionId, table_id: tableId, created_by: null,
@@ -19,6 +21,28 @@ const item = {
   id: itemId, order_id: orderId, product_id: productId, product_name_snapshot: 'Café',
   quantity: 2, unit_price: '4.25', discount_amount: 0, subtotal: '8.5',
   promotion_name: null, notes: null, uses_recipe: false,
+};
+const tableAccount = {
+  table_id: tableId, table_name: 'Mesa 1', table_session_id: sessionId, opened_at: stamp,
+  orders: [
+    { ...order, items: [{ ...item, product_name: item.product_name_snapshot, notes: 'Sin azúcar' }] },
+    {
+      ...order,
+      id: cancelledOrderId,
+      status: 'cancelled',
+      subtotal: 2,
+      total: 2,
+      created_at: '2026-11-26T12:10:00.000Z',
+      items: [{
+        ...item,
+        id: secondItemId,
+        product_name: 'Té',
+        quantity: 1,
+        unit_price: 2,
+        subtotal: 2,
+      }],
+    },
+  ],
 };
 
 function fakeService(handler, token = undefined, refresh = async () => null) {
@@ -68,6 +92,54 @@ test('tracks only an order using its private kiosk idempotency key and validates
   await assert.rejects(
     fakeService(() => { throw new ApiError(404, 'missing function', 'PGRST202'); }).api.getKioskOrderStatus(key),
     { code: 'TRACKING_NOT_CONFIGURED' },
+  );
+});
+
+test('loads every order in the active table session from the restricted public account RPC', async () => {
+  const { api, calls } = fakeService(() => tableAccount);
+  assert.deepEqual(await api.getPublicKioskTableAccount(tableId), {
+    tableId, tableName: 'Mesa 1', tableSessionId: sessionId, openedAt: stamp,
+    orders: [
+      {
+        id: orderId, tableId, tableSessionId: sessionId, status: 'pending',
+        subtotal: 8.5, discountTotal: 0, total: 8.5, createdAt: stamp,
+        items: [{
+          id: itemId, productName: 'Café', quantity: 2, unitPrice: 4.25,
+          discountAmount: 0, subtotal: 8.5, promotionName: null, notes: 'Sin azúcar',
+        }],
+      },
+      {
+        id: cancelledOrderId, tableId, tableSessionId: sessionId, status: 'cancelled',
+        subtotal: 2, discountTotal: 0, total: 2, createdAt: '2026-11-26T12:10:00.000Z',
+        items: [{
+          id: secondItemId, productName: 'Té', quantity: 1, unitPrice: 2,
+          discountAmount: 0, subtotal: 2, promotionName: null, notes: null,
+        }],
+      },
+    ],
+  });
+  assert.equal(calls[0].resource, 'rpc/get_public_kiosk_table_account');
+  assert.deepEqual(calls[0].options.body, { p_table_id: tableId });
+  assert.equal(calls[0].options.accessToken, undefined);
+  assert.equal(await fakeService(() => null).api.getPublicKioskTableAccount(tableId), null);
+  await assert.rejects(api.getPublicKioskTableAccount('invalid'), { code: 'VALIDATION_ERROR' });
+  await assert.rejects(
+    fakeService(() => ({
+      ...tableAccount,
+      orders: [{ ...tableAccount.orders[0], table_session_id: cancelledOrderId }],
+    })).api.getPublicKioskTableAccount(tableId),
+    { code: 'INVALID_RESPONSE' },
+  );
+  await assert.rejects(
+    fakeService(() => ({
+      ...tableAccount,
+      orders: [{ ...tableAccount.orders[0], items: [{ ...tableAccount.orders[0].items[0], notes: 42 }] }],
+    })).api.getPublicKioskTableAccount(tableId),
+    { code: 'INVALID_RESPONSE' },
+  );
+  await assert.rejects(
+    fakeService(() => { throw new ApiError(404, 'missing function', 'PGRST202'); }).api.getPublicKioskTableAccount(tableId),
+    { code: 'TABLE_ACCOUNT_NOT_CONFIGURED' },
   );
 });
 

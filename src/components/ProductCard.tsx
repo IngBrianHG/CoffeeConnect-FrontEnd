@@ -1,4 +1,5 @@
-import { getProductImage } from '../utils/productImage';
+import { useState } from 'react';
+import { Plus, Sparkles } from 'lucide-react';
 import type { Product } from '../types/Product';
 import type { Promotion } from '../types/Promotion';
 import { promoLabel } from '../utils/promotions';
@@ -18,15 +19,12 @@ function formatPrice(price: unknown): string {
 }
 
 export function ProductCard({ product, onAddToCart, promos = [] }: ProductCardProps) {
-  // Stock es de solo lectura en la vista de cliente
-
-const imageUrl = product.image && product.image.trim() !== ''
-  ? product.image
-  : getProductImage(product.name);
+  const [imageFailed, setImageFailed] = useState(false);
+  const imageUrl = product.image?.trim() || null;
 
   return (
     <div className={`product-card ${product.stock === 0 ? 'out-of-stock' : ''}`}>
-      <div className="product-image-container">
+      <div className={`product-image-container ${!imageUrl || imageFailed ? 'product-image-container-placeholder' : ''}`}>
         {promos.length > 0 && (
           <div className="product-promo-badges">
             {promos.map(p => (
@@ -34,34 +32,26 @@ const imageUrl = product.image && product.image.trim() !== ''
             ))}
           </div>
         )}
-        <img
-          src={imageUrl}
-          alt={product.name || 'Product'}
-          className="product-image"
-          onError={(e) => {
-            (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1578985545062-69928b1d9587?w=500&auto=format&fit=crop&q=80';
-          }}
-        />
+        {imageUrl && !imageFailed
+          ? <img src={imageUrl} alt={product.name || 'Producto'} className="product-image" onError={() => setImageFailed(true)} />
+          : <div className="product-image-placeholder" role="img" aria-label={`Imagen no disponible para ${product.name || 'este producto'}`}>
+            <Sparkles size={28} aria-hidden="true" />
+            <span>Hecho con cariño</span>
+          </div>}
       </div>
       <div className="product-info">
         <h3 className="product-name">{product.name || 'Unnamed Product'}</h3>
-
-        {/* Control de stock - Solo lectura */}
-        {(product.stock !== undefined && product.stock !== null) && (
-          <div className="stock-display" style={{ fontSize: '0.85rem', color: product.stock > 0 ? '#388E3C' : '#D32F2F', fontWeight: '500', marginBottom: '0.5rem' }}>
-            {product.stock > 0 ? `Stock disponible: ${product.stock}` : 'Agotado'}
-          </div>
-        )}
+        <span className="product-availability">Disponible en el menú</span>
 
         <div className="product-footer">
           <span className="product-price">${formatPrice(product.price)}</span>
           <button
+            type="button"
             className="add-to-cart-btn"
             onClick={() => onAddToCart(product)}
-            disabled={product.stock === 0}
-            style={{ opacity: product.stock === 0 ? 0.5 : 1, cursor: product.stock === 0 ? 'not-allowed' : 'pointer' }}
+            aria-label={`Agregar ${product.name} al carrito`}
           >
-            <span className="btn-icon">+</span>
+            <Plus size={17} className="btn-icon" aria-hidden="true" />
             Agregar
           </button>
         </div>

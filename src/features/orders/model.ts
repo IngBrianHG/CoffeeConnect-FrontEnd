@@ -47,3 +47,34 @@ export interface KioskOrderTracking {
   createdAt: string;
   items: Array<{ productName: string; quantity: number }>;
 }
+
+export interface KioskTableAccountItem {
+  id: string;
+  productName: string;
+  quantity: number;
+  unitPrice: number;
+  discountAmount: number;
+  subtotal: number;
+  promotionName: string | null;
+  notes: string | null;
+}
+
+export interface KioskTableAccountOrder {
+  id: string;
+  tableId: string;
+  tableSessionId: string;
+  status: OrderStatus;
+  subtotal: number;
+  discountTotal: number;
+  total: number;
+  createdAt: string;
+  items: KioskTableAccountItem[];
+}
+
+export interface KioskTableAccount {
+  tableId: string;
+  tableName: string;
+  tableSessionId: string;
+  openedAt: string;
+  orders: KioskTableAccountOrder[];
+}

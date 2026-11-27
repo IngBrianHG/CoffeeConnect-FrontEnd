@@ -13,6 +13,7 @@
     "test:cafe-tables": "node --experimental-strip-types --test tests/cafeTables.test.mjs",
     "test:orders": "node --experimental-strip-types --test tests/orders.test.mjs",
     "test:order-availability": "node --experimental-strip-types --test tests/orderAvailability.test.mjs",
+    "test:account": "node --experimental-strip-types --test tests/account.test.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

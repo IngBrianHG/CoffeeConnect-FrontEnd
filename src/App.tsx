@@ -5,6 +5,7 @@ import { OrdersHistory } from './pages/OrdersHistory';
 import { Kiosk } from './pages/user/Kiosk';
 import { AuthProvider, useAuth } from './auth/AuthContext';
 import './styles/main.css';
+import './styles/kiosk-redesign.css';
 
 const DevUiShowcase = import.meta.env.DEV
   ? lazy(() => import('./pages/dev/UiShowcase').then(module => ({ default: module.UiShowcase })))
@@ -32,7 +33,7 @@ export default function App() {
           <Route index element={<Navigate to="/admin/dashboard" replace />} />
         </Route>
 
-        {/* Kiosco del cliente: solo menú y pedido (sin ver pedidos). El seguimiento lo hace el personal. */}
+        {/* Kiosco: menú, creación pública y consulta limitada a la sesión abierta de la mesa. */}
         <Route path="/user/:mesa_id" element={<Kiosk />} />
 
         {/* Redirección por defecto */}

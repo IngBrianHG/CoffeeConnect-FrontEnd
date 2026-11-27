@@ -12,7 +12,7 @@
 - Crear órdenes únicamente con `create_public_order`; no insertar directamente en `orders`, `order_items` ni snapshots.
 - Confirmar, avanzar o cancelar órdenes únicamente mediante las RPC de personal. No actualizar `status`, inventario o movimientos directamente por REST.
 - Para pedidos POS para llevar se usará una mesa operativa real llamada **Para llevar**. No se crearán órdenes sin mesa ni se alterarán las columnas obligatorias del modelo actual.
-- El kiosco puede crear una orden como `anon`; anon no puede listar órdenes, leer órdenes arbitrarias ni invocar operaciones de personal. Para consultar únicamente una orden kiosco propia se requiere la RPC de seguimiento propuesta abajo y su migración aprobada.
+- El kiosco puede crear una orden como `anon`; anon no puede leer órdenes directamente ni consultar sesiones cerradas o arbitrarias. La única lectura compartida propuesta es una RPC limitada a los pedidos de la sesión actualmente abierta de una mesa activa; requiere aprobación y migración.
 - Los pagos, asignaciones y cierre de sesión se especifican en el contrato 08; este contrato define el ciclo de vida operativo de la orden.
 - El total, precio unitario, nombre snapshot, stock y estado de pago son autoridad del servidor. Nunca enviar total o descuento calculado por el navegador como instrucción de escritura.
 - La RPC local no aplica promociones: `discount_total` y `discount_amount` quedan en cero. No presentar descuentos como aplicados ni habilitar promociones en checkout hasta que una RPC versionada las calcule.
@@ -25,6 +25,7 @@ RLS, grants, restricciones e invariantes RPC son la autoridad; la UI por sí sol
 |---|---:|---:|---:|---:|
 | Crear orden en sesión abierta | Sí | Sí | Sí | Sí |
 | Leer lista y detalle de órdenes | Sí | Sí | Sí | No |
+| Consultar cuenta de la sesión abierta de una mesa activa | No aplica | No aplica | No aplica | Sí, solo mediante RPC restringida propuesta |
 | Confirmar orden y consumir inventario | Sí | Sí | Sí | No |
 | Avanzar preparación/entrega | Sí | Sí | Sí | No |
 | Cancelar si la transición lo permite | Sí | Sí | Sí | No |
@@ -167,7 +168,7 @@ El cliente crea una clave nueva por cada envío lógico del carrito, la conserva
 
 ## Seguimiento privado de una orden del kiosco (migración propuesta)
 
-El QR identifica una mesa, no a un cliente. No habilitar lecturas públicas por `table_id` o `table_session_id`: revelarían pedidos ajenos de la mesa. Para mostrar el estado solo al navegador que envió el pedido, se propone:
+El QR identifica una mesa, no a un cliente. Esta RPC privada no permite consultar órdenes por `table_id` o `table_session_id`; devuelve únicamente la orden cuyo navegador conserva la clave privada. La lectura compartida de la cuenta activa, con un alcance y payload separados, se describe en la siguiente propuesta.
 
 ```http
 POST /rest/v1/rpc/get_public_kiosk_order_status
@@ -178,9 +179,17 @@ La propuesta `docs/sql/003_public_kiosk_order_tracking.sql` devuelve solo UUID d
 
 Esta RPC no existe en el esquema base `001_supabase_schema.sql`; la migración es un cambio de backend pendiente de aprobación y despliegue. Hasta aplicarla, el kiosco puede confirmar la creación usando la respuesta de `create_public_order`, pero no puede refrescar el estado actual tras cambios hechos por el personal.
 
+## Cuenta compartida de la sesión activa (migración propuesta)
+
+La vista pública **Ver mi cuenta** puede mostrar los pedidos de la sesión abierta de la mesa actual, aunque se hayan enviado desde distintos dispositivos o desde el POS. No se concede `SELECT` anónimo sobre `orders`, `order_items` ni `table_sessions`; la lectura se limita a la RPC propuesta `get_public_kiosk_table_account(p_table_id)`.
+
+La RPC recibe solo el UUID del QR y devuelve datos únicamente si la mesa está activa y tiene una sesión `open`. Devuelve todos los pedidos asociados a esa sesión, con fecha, estado, totales y líneas con nombre snapshot, cantidad, precio, descuento, subtotal y comentario del producto. Incluye cancelados para contexto; la interfaz los muestra, pero los excluye del total de pedidos. El resumen no representa saldo pendiente ni divulga pagos, personal, claves idempotentes o sesiones cerradas. No tener sesión abierta devuelve `null`. El permiso de ejecución se concede solo a `anon`; personal conserva su lectura existente por RLS.
+
+El QR de mesa es compartido: cualquier persona que lo tenga podrá ver los pedidos y comentarios por producto de la sesión activa, incluidos los de otros clientes de esa misma mesa. La propuesta `docs/sql/006_public_kiosk_table_account.sql` concede únicamente la ejecución de esta función a `anon`; debe revisarse, aprobarse y aplicarse en staging antes de habilitar la función en producción. La UI consulta de nuevo cada 10 segundos y muestra errores de servicio explícitos; no sustituye una respuesta ausente por una cuenta vacía.
+
 ## Listar y consultar órdenes (personal)
 
-Solo personal autenticado puede leer `orders`, `order_items` y snapshots. RLS incluye `admin`, `cashier` y `waiter`; anon carece de lectura. Una consulta de lista puede usar:
+Solo personal autenticado puede leer directamente `orders`, `order_items` y snapshots mediante REST. RLS incluye `admin`, `cashier` y `waiter`; anon carece de lectura directa y no puede consultar listas o detalles arbitrarios. La RPC de cuenta anterior es la excepción acotada para la sesión abierta del QR. Una consulta de lista para personal puede usar:
 
 ```http
 GET /rest/v1/orders?select=id,table_session_id,table_id,created_by,status,payment_status,subtotal,discount_total,total,notes,created_at,confirmed_at,updated_at&order=created_at.desc&limit=200

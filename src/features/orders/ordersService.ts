@@ -1,6 +1,7 @@
 import { ApiError, type HttpClient } from '../../services/http/client.ts';
 import type {
-  CafeOrder, CafeOrderItem, CreateOrderLine, KioskOrderTracking, OrderStatus, PaymentStatus, OrderWithItems,
+  CafeOrder, CafeOrderItem, CreateOrderLine, KioskOrderTracking, KioskTableAccount, KioskTableAccountItem,
+  OrderStatus, PaymentStatus, OrderWithItems,
 } from './model';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -13,6 +14,7 @@ type Row = Record<string, unknown>;
 export interface CafeOrdersService {
   createOrder(tableId: string, items: CreateOrderLine[], idempotencyKey: string): Promise<string>;
   getKioskOrderStatus(idempotencyKey: string, signal?: AbortSignal): Promise<KioskOrderTracking | null>;
+  getPublicKioskTableAccount(tableId: string, signal?: AbortSignal): Promise<KioskTableAccount | null>;
   listOrders(options?: { offset?: number; status?: OrderStatus; tableId?: string; tableSessionId?: string; signal?: AbortSignal }): Promise<CafeOrder[]>;
   listOrderItems(orderIds: string[], signal?: AbortSignal): Promise<CafeOrderItem[]>;
   getOrder(id: string, signal?: AbortSignal): Promise<OrderWithItems>;
@@ -123,6 +125,79 @@ function parseKioskOrderTracking(value: unknown): KioskOrderTracking {
   };
 }
 
+function parseKioskTableAccount(value: unknown): KioskTableAccount {
+  const row = record(value, 'cuenta pública de mesa');
+  const tableId = uuid(row.table_id, 'cuenta pública de mesa') as string;
+  const tableSessionId = uuid(row.table_session_id, 'cuenta pública de mesa') as string;
+  if (typeof row.table_name !== 'string' || !row.table_name.trim() || !Array.isArray(row.orders)) {
+    return invalid('cuenta pública de mesa');
+  }
+  const orders = row.orders.map(value => {
+    const order = record(value, 'cuenta pública de mesa');
+    if (!ORDER_STATUSES.has(order.status as OrderStatus) || !Array.isArray(order.items)
+      || uuid(order.table_id, 'cuenta pública de mesa') !== tableId
+      || uuid(order.table_session_id, 'cuenta pública de mesa') !== tableSessionId) return invalid('cuenta pública de mesa');
+    const subtotal = numeric(order.subtotal, 'cuenta pública de mesa');
+    const discountTotal = numeric(order.discount_total, 'cuenta pública de mesa');
+    const total = numeric(order.total, 'cuenta pública de mesa');
+    if (subtotal < 0 || discountTotal < 0 || discountTotal > subtotal
+      || Math.abs(total - (subtotal - discountTotal)) > 0.011
+      || order.items.length < 1 || order.items.length > 50) return invalid('cuenta pública de mesa');
+    const items: KioskTableAccountItem[] = order.items.map(value => {
+      const item = record(value, 'cuenta pública de mesa');
+      if (typeof item.product_name !== 'string' || !item.product_name.trim()
+        || !(item.promotion_name === null || typeof item.promotion_name === 'string')
+        || !(item.notes === null || typeof item.notes === 'string')) return invalid('cuenta pública de mesa');
+      const quantity = numeric(item.quantity, 'cuenta pública de mesa');
+      const unitPrice = numeric(item.unit_price, 'cuenta pública de mesa');
+      const discountAmount = numeric(item.discount_amount, 'cuenta pública de mesa');
+      const itemSubtotal = numeric(item.subtotal, 'cuenta pública de mesa');
+      if (!Number.isInteger(quantity) || quantity < 1 || quantity > 99 || unitPrice <= 0
+        || discountAmount < 0 || itemSubtotal < 0
+        || Math.abs(itemSubtotal - (unitPrice * quantity - discountAmount)) > 0.011) return invalid('cuenta pública de mesa');
+      return {
+        id: uuid(item.id, 'cuenta pública de mesa') as string,
+        productName: item.product_name,
+        quantity,
+        unitPrice,
+        discountAmount,
+        subtotal: itemSubtotal,
+        promotionName: item.promotion_name,
+        notes: item.notes,
+      };
+    });
+    if (Math.abs(items.reduce((sum, item) => sum + item.subtotal, 0) - total) > 0.011) return invalid('cuenta pública de mesa');
+    return {
+      id: uuid(order.id, 'cuenta pública de mesa') as string,
+      tableId,
+      tableSessionId,
+      status: order.status as OrderStatus,
+      subtotal,
+      discountTotal,
+      total,
+      createdAt: timestamp(order.created_at, 'cuenta pública de mesa') as string,
+      items,
+    };
+  });
+  const orderIds = new Set<string>();
+  const itemIds = new Set<string>();
+  for (const order of orders) {
+    if (orderIds.has(order.id)) return invalid('cuenta pública de mesa');
+    orderIds.add(order.id);
+    for (const item of order.items) {
+      if (itemIds.has(item.id)) return invalid('cuenta pública de mesa');
+      itemIds.add(item.id);
+    }
+  }
+  return {
+    tableId,
+    tableName: row.table_name,
+    tableSessionId,
+    openedAt: timestamp(row.opened_at, 'cuenta pública de mesa') as string,
+    orders,
+  };
+}
+
 function logOrderApi(
   phase: 'solicitud' | 'respuesta' | 'error',
   resource: string,
@@ -224,6 +299,20 @@ export function createCafeOrdersService(
         throw error;
       }
     },
+    async getPublicKioskTableAccount(tableId, signal) {
+      if (!UUID.test(tableId)) throw new ApiError(400, 'El identificador de mesa no es válido.', 'VALIDATION_ERROR');
+      try {
+        const result = await request<unknown>('rpc/get_public_kiosk_table_account', {
+          method: 'POST', body: { p_table_id: tableId }, signal,
+        });
+        return result === null ? null : parseKioskTableAccount(result);
+      } catch (error) {
+        if (error instanceof ApiError && (error.status === 404 || error.code === 'PGRST202')) {
+          throw new ApiError(error.status, 'La consulta de cuenta de mesa aún no está habilitada en el servidor.', 'TABLE_ACCOUNT_NOT_CONFIGURED');
+        }
+        throw error;
+      }
+    },
     async listOrders(options = {}) {
       const offset = options.offset ?? 0;
       if (!Number.isInteger(offset) || offset < 0 || (options.tableId && !UUID.test(options.tableId))
@@ -306,6 +395,7 @@ export function ordersErrorMessage(error: unknown): string {
     ORDER_TOO_LATE_TO_CANCEL: 'La preparación ya inició; esta orden requiere el flujo operativo autorizado.',
     ORDER_HAS_PAYMENT: 'La orden tiene un pago asignado y debe continuar por el flujo de pagos.',
     TRACKING_NOT_CONFIGURED: 'El seguimiento del pedido todavía no está habilitado en el servidor.',
+    TABLE_ACCOUNT_NOT_CONFIGURED: 'La consulta de cuenta de mesa todavía requiere habilitar la migración segura en el servidor.',
     INVALID_PRODUCT_SELECTION: 'No se pudo validar la disponibilidad de los productos. Actualiza el menú.',
   };
   if (messages[error.code ?? '']) return messages[error.code ?? ''];

@@ -13,6 +13,8 @@ import {
   cafeTablesErrorMessage, createCafeTablesService, type CafeTable, type TableSession,
 } from '../../services/cafeTables';
 import { ApiError, httpClient } from '../../services/http/client';
+import { SessionAccountPage } from '../../features/orders/components/SessionAccountPage';
+import '../../features/orders/components/account.css';
 
 type Draft = { table?: CafeTable; name: string; active: boolean } | null;
 type PendingOpen = { tableId: string; key: string };
@@ -61,6 +63,7 @@ export function TablesSessionsPage() {
   const [saving, setSaving] = useState(false);
   const [pendingOpen, setPendingOpen] = useState<PendingOpen | null>(readPendingOpen);
   const [formError, setFormError] = useState('');
+  const [accountSession, setAccountSession] = useState<TableSession | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -261,8 +264,12 @@ export function TablesSessionsPage() {
         return <span className="flex align-items-center gap-2 flex-wrap">
           {isAdmin && <Button icon="pi pi-pencil" text aria-label={`Editar ${table.name}`} onClick={() => openEditor(table)} disabled={busy} />}
           {item
-            ? <Button label="Cerrar sesión" icon="pi pi-lock" severity="secondary" outlined disabled={busy} loading={busy}
+            ? <>
+              <Button label="Ver cuenta" icon="pi pi-wallet" severity="secondary" outlined disabled={busy}
+                onClick={() => setAccountSession(item)} />
+              <Button label="Cerrar sesión" icon="pi pi-lock" severity="secondary" outlined disabled={busy} loading={busy}
                 onClick={() => void closeSession(item, table.name)} />
+            </>
             : <Button label={pendingOpen?.tableId === table.id ? 'Reintentar apertura' : 'Abrir sesión'} icon="pi pi-lock-open"
                 disabled={busy || Boolean(pendingOpen) || !table.active || table.status === 'unavailable'}
                 loading={busy} onClick={() => void openSession(table, pendingOpen?.tableId === table.id)} />}
@@ -311,6 +318,16 @@ export function TablesSessionsPage() {
         </div>}
         {formError && <small id="table-form-error" role="alert">{formError}</small>}
       </div>}
+    </Dialog>
+    <Dialog
+      visible={accountSession !== null}
+      header={accountSession ? `Cuenta · ${accountSession.id.slice(0, 8)}` : 'Cuenta'}
+      modal
+      className="account-payment-dialog"
+      contentStyle={{ maxHeight: '82vh', overflow: 'auto' }}
+      onHide={() => setAccountSession(null)}
+    >
+      {accountSession && <SessionAccountPage sessionId={accountSession.id} onSessionClosed={load} />}
     </Dialog>
   </section>;
 }

@@ -1,20 +1,10 @@
 import type { Category } from '../../types/Category';
-import { Coffee, IceCreamCone, Cake, Sandwich, UtensilsCrossed } from 'lucide-react';
+import { CategoryIcon } from './categoryIcons';
 
 interface SidebarProps {
   categories: Category[];
   selectedCategory: number | null;
   onSelectCategory: (categoryId: number | null) => void;
-}
-
-function getCategoryIcon(categoryName: string) {
-  const name = categoryName.toLowerCase();
-  if (name.includes('pastel') || name.includes('tarta')) return <Cake size={18} />;
-  if (name.includes('postre') || name.includes('dulce') || name.includes('mousse') || name.includes('cheesecake')) return <Cake size={18} />;
-  if (name.includes('repostería') || name.includes('hojaldre') || name.includes('pan') || name.includes('snack') || name.includes('sandwich')) return <Sandwich size={18} />;
-  if (name.includes('caliente') || name.includes('café') || name.includes('bebida') || name.includes('té')) return <Coffee size={18} />;
-  if (name.includes('fría') || name.includes('frappé') || name.includes('helado')) return <IceCreamCone size={18} />;
-  return <UtensilsCrossed size={18} />;
 }
 
 /**
@@ -37,14 +27,13 @@ export function Sidebar({ categories, selectedCategory, onSelectCategory }: Side
       </div>
 
       <h3 className="category-title">Categorías</h3>
-      <ul className="category-menu">
+      <ul className="category-menu" aria-label="Categorías del menú">
         {/* Opción "Todos" */}
-        <li
-          className={`category-item ${selectedCategory === null ? 'active' : ''}`}
-          onClick={() => onSelectCategory(null)}
-        >
-          <span className="category-icon"><Cake size={18} /></span>
-          <span className="category-name">Todos</span>
+        <li className={`category-item ${selectedCategory === null ? 'active' : ''}`}>
+          <button type="button" className="category-button" onClick={() => onSelectCategory(null)} aria-pressed={selectedCategory === null}>
+            <span className="category-icon"><CategoryIcon name="Otros" /></span>
+            <span className="category-name">Todos</span>
+          </button>
         </li>
 
         {/* Categorías dinámicas */}
@@ -52,13 +41,11 @@ export function Sidebar({ categories, selectedCategory, onSelectCategory }: Side
           const category = categories.find(c => c.id === id);
           if (!category) return null;
           return (
-            <li
-              key={category.id}
-              className={`category-item ${selectedCategory === category.id ? 'active' : ''}`}
-              onClick={() => onSelectCategory(category.id)}
-            >
-              <span className="category-icon">{getCategoryIcon(category.name)}</span>
-              <span className="category-name">{category.name}</span>
+            <li key={category.id} className={`category-item ${selectedCategory === category.id ? 'active' : ''}`}>
+              <button type="button" className="category-button" onClick={() => onSelectCategory(category.id)} aria-pressed={selectedCategory === category.id}>
+                <span className="category-icon"><CategoryIcon name={category.name} /></span>
+                <span className="category-name">{category.name}</span>
+              </button>
             </li>
           );
         })}

@@ -13,10 +13,11 @@ import { Tag } from 'primereact/tag';
 import { TabPanel, TabView } from 'primereact/tabview';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../auth/AuthContext';
+import { FIXED_KIOSK_CATEGORY_NAMES } from '../../features/catalog/categoryNames';
 import { adminCatalogErrorMessage, createAdminCatalogService, type AdminCategory, type AdminProduct } from '../../services/adminCatalog';
 import { httpClient, ApiError } from '../../services/http/client';
 
-type Editing = { kind: 'category'; value?: AdminCategory } | { kind: 'product'; value?: AdminProduct } | null;
+type Editing = { kind: 'product'; value?: AdminProduct } | null;
 
 export function AdminCatalogPage() {
   const { session, refreshSession, signOut } = useAuth();
@@ -71,13 +72,6 @@ export function AdminCatalogPage() {
 
   useEffect(() => { void load(); }, [load]);
 
-  function openCategory(value?: AdminCategory) {
-    setEditing({ kind: 'category', value });
-    setForm({ name: value?.name ?? '', description: value?.description ?? '', categoryId: '', price: null, active: value?.active ?? true });
-    setImageFile(null);
-    setUploadedImageUrl(null);
-    setFieldError('');
-  }
   function openProduct(value?: AdminProduct) {
     setEditing({ kind: 'product', value });
     setForm({ name: value?.name ?? '', description: value?.description ?? '', categoryId: value?.categoryId ?? '', price: value?.price ?? null, active: value?.active ?? true });
@@ -90,30 +84,24 @@ export function AdminCatalogPage() {
     setFieldError('');
     setSaving(true);
     try {
-      if (editing.kind === 'category') {
-        const input = { name: form.name, description: form.description, active: form.active };
-        if (editing.value) await service.updateCategory(editing.value.id, input);
-        else await service.createCategory(input);
-      } else {
-        const category = categories.find(item => item.id === form.categoryId);
-        if (!category || !category.active) {
-          setFieldError('Selecciona una categoría existente y activa.');
-          return;
-        }
-        if (form.price === null) {
-          setFieldError('El precio es obligatorio.');
-          return;
-        }
-        let imageUrl = uploadedImageUrl;
-        if (imageFile) {
-          imageUrl = await service.uploadProductImage(imageFile);
-          setUploadedImageUrl(imageUrl);
-          setImageFile(null);
-        }
-        const input = { categoryId: form.categoryId, name: form.name, description: form.description, price: form.price, imageUrl, active: form.active };
-        if (editing.value) await service.updateProduct(editing.value.id, input);
-        else await service.createProduct(input);
+      const category = categories.find(item => item.id === form.categoryId);
+      if (!category || !category.active) {
+        setFieldError('Selecciona una categoría existente y activa.');
+        return;
       }
+      if (form.price === null) {
+        setFieldError('El precio es obligatorio.');
+        return;
+      }
+      let imageUrl = uploadedImageUrl;
+      if (imageFile) {
+        imageUrl = await service.uploadProductImage(imageFile);
+        setUploadedImageUrl(imageUrl);
+        setImageFile(null);
+      }
+      const input = { categoryId: form.categoryId, name: form.name, description: form.description, price: form.price, imageUrl, active: form.active };
+      if (editing.value) await service.updateProduct(editing.value.id, input);
+      else await service.createProduct(input);
       setEditing(null);
       setImageFile(null);
       setUploadedImageUrl(null);
@@ -129,12 +117,6 @@ export function AdminCatalogPage() {
     }
   }
 
-  async function setCategoryActive(category: AdminCategory, active: boolean) {
-    try {
-      await service.updateCategory(category.id, { name: category.name, description: category.description, active });
-      await load();
-    } catch (cause) { setError(adminCatalogErrorMessage(cause)); }
-  }
   async function setProductActive(product: AdminProduct, active: boolean) {
     try {
       const category = categories.find(item => item.id === product.categoryId);
@@ -154,10 +136,13 @@ export function AdminCatalogPage() {
     <Button label="Cancelar" severity="secondary" outlined onClick={() => setEditing(null)} disabled={saving} />
     <Button label="Guardar" icon="pi pi-check" onClick={() => void save()} loading={saving} />
   </div>;
-  const editCategory = editing?.kind === 'category';
+  const fixedActiveCategories = FIXED_KIOSK_CATEGORY_NAMES.flatMap(name => {
+    const category = categories.find(item => item.name === name && item.active);
+    return category ? [category] : [];
+  });
   return <section className="flex flex-column gap-3">
     <div className="flex align-items-center justify-content-between flex-wrap gap-2">
-      <div><h2 className="mt-0 mb-1">Catálogo</h2><p className="mt-0 mb-0">Administra productos y categorías. El stock se gestiona desde Inventario.</p></div>
+      <div><h2 className="mt-0 mb-1">Catálogo</h2><p className="mt-0 mb-0">Administra productos del catálogo fijo. Las categorías no se editan; el stock se gestiona desde Inventario.</p></div>
     </div>
     {error && <Message severity="error" text={error} />}
     <TabView>
@@ -182,28 +167,23 @@ export function AdminCatalogPage() {
       <TabPanel header="Categorías">
         <section aria-labelledby="categories-heading" className="flex flex-column gap-3">
           <div className="flex align-items-center justify-content-between flex-wrap gap-2">
-            <div><h3 id="categories-heading" className="mt-0 mb-1">Categorías</h3><p className="mt-0 mb-0">Organiza los productos del catálogo.</p></div>
-            <Button label="Nueva categoría" icon="pi pi-tag" outlined onClick={() => openCategory()} />
+            <div><h3 id="categories-heading" className="mt-0 mb-1">Categorías</h3><p className="mt-0 mb-0">Catálogo fijo de solo lectura. Las categorías y sus iconos se definen en la aplicación.</p></div>
           </div>
-          <DataTable value={categories} dataKey="id" size="small" stripedRows responsiveLayout="scroll" loading={loading} emptyMessage="No hay categorías.">
+          <DataTable value={fixedActiveCategories} dataKey="id" size="small" stripedRows responsiveLayout="scroll" loading={loading} emptyMessage="No hay categorías fijas activas.">
             <Column field="name" header="Nombre" />
             <Column field="description" header="Descripción" body={(row: AdminCategory) => row.description || '—'} />
             <Column header="Estado" body={(row: AdminCategory) => <Tag value={row.active ? 'Activa' : 'Inactiva'} severity={row.active ? 'success' : 'secondary'} />} />
-            <Column header="Acciones" body={(row: AdminCategory) => <span className="flex gap-2">
-              <Button icon="pi pi-pencil" aria-label={`Editar ${row.name}`} text onClick={() => openCategory(row)} />
-              <Button icon={row.active ? 'pi pi-ban' : 'pi pi-check'} aria-label={row.active ? `Desactivar ${row.name}` : `Activar ${row.name}`} text onClick={() => void setCategoryActive(row, !row.active)} />
-            </span>} />
           </DataTable>
         </section>
       </TabPanel>
     </TabView>
-    <Dialog visible={editing !== null} header={`${editing?.value ? 'Editar' : 'Nueva'} ${editCategory ? 'categoría' : 'producto'}`} modal onHide={() => !saving && setEditing(null)} footer={dialogFooter} className="w-11 md:w-8 lg:w-6" contentStyle={{ maxHeight: '75vh', overflow: 'auto' }}>
+    <Dialog visible={editing !== null} header={`${editing?.value ? 'Editar' : 'Nuevo'} producto`} modal onHide={() => !saving && setEditing(null)} footer={dialogFooter} className="w-11 md:w-8 lg:w-6" contentStyle={{ maxHeight: '75vh', overflow: 'auto' }}>
       <div className="p-fluid flex flex-column gap-3">
         {fieldError && <Message severity="error" text={fieldError} />}
         <div className="field"><label htmlFor="admin-name">Nombre *</label><InputText id="admin-name" value={form.name} maxLength={120} onChange={event => setForm(current => ({ ...current, name: event.target.value }))} /></div>
         <div className="field"><label htmlFor="admin-description">Descripción</label><InputTextarea id="admin-description" value={form.description} rows={3} onChange={event => setForm(current => ({ ...current, description: event.target.value }))} /></div>
-        {!editCategory && <>
-          <div className="field"><label htmlFor="admin-category">Categoría *</label><Dropdown inputId="admin-category" value={form.categoryId} options={categories.filter(item => item.active).map(item => ({ label: item.name, value: item.id }))} onChange={event => setForm(current => ({ ...current, categoryId: event.value }))} placeholder="Selecciona una categoría" /></div>
+        <>
+          <div className="field"><label htmlFor="admin-category">Categoría *</label><Dropdown inputId="admin-category" value={form.categoryId} options={fixedActiveCategories.map(item => ({ label: item.name, value: item.id }))} onChange={event => setForm(current => ({ ...current, categoryId: event.value }))} placeholder="Selecciona una categoría" /></div>
           <div className="field"><label htmlFor="admin-price">Precio *</label><InputNumber inputId="admin-price" value={form.price} onValueChange={event => setForm(current => ({ ...current, price: event.value ?? null }))} mode="currency" currency="USD" locale="es-SV" min={0.01} minFractionDigits={2} maxFractionDigits={2} /></div>
           <div className="field">
             <label htmlFor="admin-product-image">Imagen del producto</label>
@@ -230,7 +210,7 @@ export function AdminCatalogPage() {
               }} />
             </div>}
           </div>
-        </>}
+        </>
         <div className="flex align-items-center gap-2"><InputSwitch inputId="admin-active" checked={form.active} onChange={event => setForm(current => ({ ...current, active: event.value }))} /><label htmlFor="admin-active">Activo</label></div>
       </div>
     </Dialog>
