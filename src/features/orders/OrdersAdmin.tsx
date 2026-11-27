@@ -7,6 +7,7 @@ import { InputTextarea } from 'primereact/inputtextarea';
 import { Message } from 'primereact/message';
 import { Tag } from 'primereact/tag';
 import { Dropdown } from 'primereact/dropdown';
+import Swal from 'sweetalert2';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../auth/AuthContext';
 import { ApiError, httpClient } from '../../services/http/client';
@@ -22,6 +23,9 @@ const labels: Record<OrderStatus, string> = {
 };
 function money(value: number): string {
   return new Intl.NumberFormat('es-SV', { style: 'currency', currency: 'USD' }).format(value);
+}
+function brandColor(): string {
+  return getComputedStyle(document.documentElement).getPropertyValue('--color-brand').trim();
 }
 
 export function OrdersAdmin() {
@@ -56,11 +60,11 @@ export function OrdersAdmin() {
   const requestInFlight = useRef(false);
   const [actionOrderId, setActionOrderId] = useState<string | null>(null);
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
   const [selected, setSelected] = useState<CafeOrder | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [cancelTarget, setCancelTarget] = useState<CafeOrder | null>(null);
   const [reason, setReason] = useState('');
+  const actionInFlight = useRef(false);
 
   const load = useCallback(async (status: OrderStatus | 'all' = filterStatus) => {
     if (requestInFlight.current) return;
@@ -203,13 +207,17 @@ export function OrdersAdmin() {
     } finally { setDetailLoading(false); }
   }
 
-  async function runAction(order: CafeOrder, action: () => Promise<OrderStatus>, success: string): Promise<boolean> {
-    if (busy) return false;
+  async function runAction(
+    order: CafeOrder,
+    action: () => Promise<OrderStatus>,
+    success: string,
+  ): Promise<boolean> {
+    if (actionInFlight.current) return false;
+    actionInFlight.current = true;
     const refreshSelected = selected?.id === order.id;
     setActionOrderId(order.id);
     setBusy(true);
     setError('');
-    setNotice('');
     try {
       const updatedStatus = await action();
       setOrders(current => current.flatMap(currentOrder => {
@@ -217,27 +225,45 @@ export function OrdersAdmin() {
         if (filterStatus !== 'all' && filterStatus !== updatedStatus) return [];
         return [{ ...currentOrder, status: updatedStatus }];
       }));
-      setNotice(success);
+      let detailRefreshFailed = false;
       if (refreshSelected) {
         try {
           const refreshed = await service.getOrder(order.id);
           setSelected(refreshed);
           setItems(refreshed.items);
         } catch {
-          setNotice(`${success} La operación se guardó, pero no se pudo actualizar el detalle.`);
+          detailRefreshFailed = true;
         }
       }
+      await Swal.fire({
+        toast: true,
+        position: 'top-end',
+        icon: detailRefreshFailed ? 'warning' : 'success',
+        title: detailRefreshFailed ? 'Pedido actualizado' : 'Estado actualizado',
+        text: detailRefreshFailed
+          ? `${success} La operación se guardó, pero no se pudo actualizar el detalle.`
+          : success,
+        showConfirmButton: false,
+        timer: detailRefreshFailed ? 5000 : 1800,
+        timerProgressBar: true,
+      });
       return true;
     } catch (cause) {
       if (cause instanceof ApiError && cause.status === 401) {
         await signOut();
         navigate('/admin/login', { replace: true });
       }
-      setError(ordersErrorMessage(cause));
+      await Swal.fire({
+        icon: 'error',
+        title: 'No se pudo actualizar el pedido',
+        text: ordersErrorMessage(cause),
+        confirmButtonColor: brandColor(),
+      });
       return false;
     } finally {
       setBusy(false);
       setActionOrderId(null);
+      actionInFlight.current = false;
     }
   }
 
@@ -263,10 +289,9 @@ export function OrdersAdmin() {
   }), [orders]);
   const itemRows = useMemo(() => items.filter(item => item.orderId === selected?.id), [items, selected]);
 
-  return <section className="admin-module orders-admin" aria-labelledby="orders-heading">
+  return <section className="admin-module orders-admin" aria-label="Pedidos">
     <div className="orders-admin__header">
-      <div><h2 id="orders-heading" className="mt-0 mb-1">Comandas</h2>
-        <p className="mt-0 mb-0">Más antiguas primero · entregadas después · canceladas al final.</p></div>
+      <p className="mt-0 mb-0">Seguimiento de pedidos · los más antiguos aparecen primero.</p>
       <div className="orders-admin__controls">
         <label className="orders-admin__filter-label" htmlFor="orders-status-filter">Estado</label>
         <Dropdown inputId="orders-status-filter" value={filterStatus}
@@ -287,7 +312,6 @@ export function OrdersAdmin() {
     </div>
     {error && <Message severity="error" text={error} />}
     {tableError && <Message severity="warn" text={`No se pudieron cargar los nombres de mesa. Se muestran identificadores. ${tableError}`} />}
-    {notice && <Message severity="success" text={notice} />}
     {loading && orders.length === 0
       ? <div className="order-command-state" role="status"><i className="pi pi-spin pi-spinner" aria-hidden="true" /> Cargando comandas…</div>
       : sortedOrders.length === 0
@@ -300,28 +324,55 @@ export function OrdersAdmin() {
             const orderItems = commandItemsByOrder.get(order.id) ?? [];
             return <article className={`order-command-card order-command-card--${order.status}`} key={order.id}>
               <header className="order-command-card__header">
-                <div>
-                  <h3>{tableNames[order.tableId] ?? `Mesa · ${order.tableId.slice(0, 8)}`}</h3>
-                  <time dateTime={order.createdAt}>{new Date(order.createdAt).toLocaleString('es-SV', { dateStyle: 'short', timeStyle: 'short' })}</time>
+                <div className="order-command-card__topline">
+                  <time className="order-command-card__datetime" dateTime={order.createdAt}>
+                    <i className="pi pi-clock" aria-hidden="true" />
+                    {new Date(order.createdAt).toLocaleTimeString('es-SV', { hour: 'numeric', minute: '2-digit' })}
+                  </time>
+                  <Tag className="order-command-card__status" value={labels[order.status]}
+                    icon={order.status === 'served' ? 'pi pi-check-circle' : order.status === 'cancelled' ? 'pi pi-times-circle' : order.status === 'pending' ? 'pi pi-clock' : 'pi pi-sync'}
+                    severity={order.status === 'served' ? 'success' : order.status === 'cancelled' ? 'danger' : order.status === 'pending' ? 'warning' : 'info'} />
                 </div>
-                <Tag value={labels[order.status]} severity={order.status === 'served' ? 'success' : order.status === 'cancelled' ? 'danger' : order.status === 'pending' ? 'warning' : 'info'} />
+                <div className="order-command-card__identity">
+                  <h3>{tableNames[order.tableId] ?? `Mesa · ${order.tableId.slice(0, 8)}`}</h3>
+                </div>
               </header>
-              <div className="order-command-card__meta">
-                <span>{order.createdBy === null ? 'Kiosco' : 'POS / personal'}</span>
-                <span>{order.paymentStatus === 'paid' ? 'Pagada' : order.paymentStatus === 'partial' ? 'Pago parcial' : 'Sin pago'}</span>
+              <dl className="order-command-card__facts">
+                <div>
+                  <dt className="order-command-card__visually-hidden">Canal</dt>
+                  <dd title={order.createdBy === null ? 'Kiosco' : 'POS / personal'}>
+                    <i className="pi pi-shopping-bag" aria-hidden="true" />
+                    <span>{order.createdBy === null ? 'Kiosco' : 'POS / personal'}</span>
+                  </dd>
+                </div>
+                <div>
+                  <dt className="order-command-card__visually-hidden">Pago</dt>
+                  <dd title={order.paymentStatus === 'paid' ? 'Pagada' : order.paymentStatus === 'partial' ? 'Pago parcial' : 'Sin pago'}>
+                    <i className="pi pi-wallet" aria-hidden="true" />
+                    <span>{order.paymentStatus === 'paid' ? 'Pagada' : order.paymentStatus === 'partial' ? 'Pago parcial' : 'Sin pago'}</span>
+                  </dd>
+                </div>
+              </dl>
+              <div className="order-command-card__total">
+                <span>Total del pedido</span>
                 <strong>{money(order.total)}</strong>
               </div>
-              <ul className="order-command-card__items">
-                {orderItems.map(item => <li key={item.id}>
-                  <span><b>{item.quantity}×</b> {item.productName}</span>
-                  <strong>{money(item.subtotal)}</strong>
-                  {item.notes && <small><i className="pi pi-comment" aria-hidden="true" /> {item.notes}</small>}
-                </li>)}
-                {!orderItems.length && <li className="order-command-card__empty">Sin productos</li>}
-              </ul>
+              <section className="order-command-card__products" aria-label="Productos del pedido">
+                <div className="order-command-card__products-heading">
+                  <span>{orderItems.length} {orderItems.length === 1 ? 'artículo' : 'artículos'}</span>
+                </div>
+                <ul className="order-command-card__items">
+                  {orderItems.map(item => <li key={item.id}>
+                    <span><b>{item.quantity}×</b> {item.productName}</span>
+                    <strong>{money(item.subtotal)}</strong>
+                    {item.notes && <small><i className="pi pi-comment" aria-hidden="true" /> {item.notes}</small>}
+                  </li>)}
+                  {!orderItems.length && <li className="order-command-card__empty">Sin productos</li>}
+                </ul>
+              </section>
               {order.notes && <p className="order-command-card__note"><i className="pi pi-info-circle" aria-hidden="true" /> {order.notes}</p>}
               <footer className="order-command-card__actions">
-                {orderAction && <Button label={orderAction.label} icon="pi pi-arrow-up" className="w-full"
+                {orderAction && <Button label={orderAction.label} icon="pi pi-arrow-right" className="order-command-card__primary-action"
                   disabled={busy} loading={busy && actionOrderId === order.id}
                   onClick={() => void runAction(order,
                     () => order.status === 'pending'
@@ -329,10 +380,8 @@ export function OrdersAdmin() {
                       : service.advanceOrder(order.id, nextAction[order.status]!.status),
                     order.status === 'pending' ? 'Orden confirmada.' : 'Estado de la orden actualizado.',
                   )} />}
-                <div>
-                  <Button icon="pi pi-eye" aria-label="Ver detalle de la orden" text
-                    onClick={() => void openDetail(order)} disabled={busy} />
-                </div>
+                <Button icon="pi pi-eye" aria-label="Ver detalle del pedido" tooltip="Ver detalle"
+                  severity="secondary" outlined onClick={() => void openDetail(order)} disabled={busy} />
               </footer>
             </article>;
           })}

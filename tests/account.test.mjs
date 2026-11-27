@@ -5,6 +5,7 @@ import { createAccountService, accountErrorMessage } from '../src/features/order
 
 const tableId = '11111111-1111-4111-8111-111111111111';
 const sessionId = '22222222-2222-4222-8222-222222222222';
+const secondSessionId = '88888888-8888-4888-8888-888888888888';
 const orderId = '33333333-3333-4333-8333-333333333333';
 const itemId = '55555555-5555-4555-8555-555555555555';
 const paymentId = '66666666-6666-4666-8666-666666666666';
@@ -60,6 +61,35 @@ test('loads a complete session account and derives line and session balances', a
   assert.equal(account.balance, 6);
   assert.equal(account.lines[0].paidAmount, 4);
   assert.equal(account.lines[0].balance, 6);
+});
+
+test('aggregates all served account totals across paginated session orders', async () => {
+  const orders = Array.from({ length: 201 }, (_, index) => ({
+    id: `${index.toString(16).padStart(8, '0')}-1111-4111-8111-111111111111`,
+    table_session_id: index === 200 ? secondSessionId : sessionId,
+    total: index === 0 ? '10.25' : '1.00',
+  }));
+  const { api, calls } = fakeService((resource, options) => {
+    if (resource !== 'orders') return [];
+    const offset = Number(options.query.offset);
+    return orders.slice(offset, offset + 200);
+  });
+
+  const totals = await api.getServedTotalsBySession([sessionId, secondSessionId]);
+
+  assert.equal(totals.get(sessionId), 209.25);
+  assert.equal(totals.get(secondSessionId), 1);
+  assert.deepEqual(calls.map(call => call.options.query.offset), ['0', '200']);
+  assert.ok(calls.every(call => call.options.query.status === 'eq.served'));
+  assert.ok(calls.every(call => call.options.query.table_session_id.includes(sessionId)
+    && call.options.query.table_session_id.includes(secondSessionId)));
+});
+
+test('rejects duplicate or malformed session identifiers before requesting totals', async () => {
+  const { api, calls } = fakeService(() => []);
+  await assert.rejects(api.getServedTotalsBySession([sessionId, sessionId]), { code: 'VALIDATION_ERROR' });
+  await assert.rejects(api.getServedTotalsBySession(['invalid']), { code: 'VALIDATION_ERROR' });
+  assert.equal(calls.length, 0);
 });
 
 test('rejects cross-session, cancelled and duplicate payment allocations before RPC', async () => {

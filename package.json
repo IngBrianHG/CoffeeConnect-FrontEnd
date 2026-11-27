@@ -14,6 +14,7 @@
     "test:orders": "node --experimental-strip-types --test tests/orders.test.mjs",
     "test:order-availability": "node --experimental-strip-types --test tests/orderAvailability.test.mjs",
     "test:account": "node --experimental-strip-types --test tests/account.test.mjs",
+    "test:reports": "node --experimental-strip-types --test tests/reports.test.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

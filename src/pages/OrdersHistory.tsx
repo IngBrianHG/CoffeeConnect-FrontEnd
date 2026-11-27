@@ -1,12 +1,12 @@
 import { Suspense, lazy, useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import Swal from 'sweetalert2';
-import { ClipboardList, Coffee, Package, LogOut, RefreshCw, AlertTriangle, ChefHat, CheckCircle, Bell, Ban, Trash2, CreditCard, Clock, Calendar, DollarSign, Plus, X, Save, ShoppingCart, Search, BarChart3, Banknote, Smartphone, Hash, Pencil, Users, Gift, MessageSquareText, Boxes, UserRound, Menu as MenuIcon } from 'lucide-react';
+import { ClipboardList, Coffee, Package, LogOut, RefreshCw, AlertTriangle, ChefHat, CheckCircle, Bell, Ban, Trash2, Clock, Calendar, DollarSign, Plus, X, Save, ShoppingCart, Search, BarChart3, Pencil, Users, Gift, MessageSquareText, Boxes, UserRound, Menu as MenuIcon } from 'lucide-react';
 import {
   fetchOrders, fetchOrderById, updateOrderStatus,
-  createProduct, deleteProduct, updateProduct, fetchReport
+  createProduct, deleteProduct, updateProduct
 } from '../services/api';
-import type { Mesa, ReportData } from '../services/api';
+import type { Mesa } from '../services/api';
 import type { Order, CartItem } from '../types/Order';
 import type { Product } from '../types/Product';
 import type { Category } from '../types/Category';
@@ -18,6 +18,8 @@ import { AdminCatalogPage } from './admin/AdminCatalogPage';
 import { TablesSessionsPage } from './admin/TablesSessionsPage';
 import { calculateCartPricing, newLineId, MAX_NOTE_LENGTH } from '../utils/promotions';
 import { OrdersAdmin } from '../features/orders/OrdersAdmin';
+import { ReportsPage } from '../features/reports/ReportsPage';
+import { CajaPage } from '../features/caja/CajaPage';
 import { createCafeOrdersService, ordersErrorMessage } from '../features/orders/ordersService';
 import { createOrderAvailabilityService } from '../features/orders/orderAvailabilityService';
 import { createCafeTablesService } from '../services/cafeTables';
@@ -26,10 +28,8 @@ import { httpClient } from '../services/http/client';
 import { ApiError } from '../services/http/client';
 import type { CreateOrderLine } from '../features/orders/model';
 import { Button } from 'primereact/button';
-import { Calendar as PrimeCalendar } from 'primereact/calendar';
 import { Dropdown } from 'primereact/dropdown';
 import { InputText } from 'primereact/inputtext';
-import { APP_LOCALE, CALENDAR_DATE_FORMAT } from '../config/primeReact';
 
 const InventoryPage = lazy(() => import('../features/inventory/InventoryPage').then(module => ({ default: module.InventoryPage })));
 
@@ -79,19 +79,14 @@ function formatDate(dateStr?: string) {
   });
 }
 
-function toReportDate(value: string): Date | null {
-  if (!value) return null;
-  const [year, month, day] = value.split('-').map(Number);
-  return new Date(year, month - 1, day);
-}
-
-function fromReportDate(value: Date | null | undefined): string {
-  if (!value) return '';
-  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
-}
-
 const EMPTY_FORM = { name: '', description: '', price: '', image: '', category_id: '' };
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+function getCashSessionId(state: unknown): string | undefined {
+  if (!state || typeof state !== 'object' || Array.isArray(state)) return undefined;
+  const sessionId = (state as Record<string, unknown>).cashSessionId;
+  return typeof sessionId === 'string' && UUID_PATTERN.test(sessionId) ? sessionId : undefined;
+}
+
 function legacyProductAdminVisible(role: string, tab: string): boolean {
   void role;
   void tab;
@@ -128,6 +123,8 @@ function readPendingPosOrder(): { tableId: string; key: string; items: CreateOrd
 
 export function OrdersHistory() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const cashSessionId = getCashSessionId(location.state);
   const { session, signOut, refreshSession } = useAuth();
   const accessToken = session?.accessToken;
   const accessTokenRef = useRef(accessToken);
@@ -148,12 +145,18 @@ export function OrdersHistory() {
     return refreshed?.accessToken ?? null;
   }), [refreshSession]);
   const userRole = session?.profile.role ?? 'waiter';
-  const [activeTab, setActiveTab] = useState<'orders' | 'products' | 'mesas' | 'pos' | 'reports' | 'users' | 'promos' | 'inventory' | 'profile'>(userRole === 'admin' ? 'orders' : 'pos');
+  const [activeTab, setActiveTab] = useState<'orders' | 'products' | 'mesas' | 'caja' | 'pos' | 'reports' | 'users' | 'promos' | 'inventory' | 'profile'>(userRole === 'admin' ? 'orders' : 'pos');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const sidebarRef = useRef<HTMLElement>(null);
   const menuWasOpen = useRef(false);
   const [inventoryRecipeDirty, setInventoryRecipeDirty] = useState(false);
+  useEffect(() => {
+    if (!cashSessionId) return;
+    setActiveTab('caja');
+    setMobileMenuOpen(false);
+  }, [cashSessionId, location.key]);
+
   const navigateTab = useCallback((nextTab: typeof activeTab) => {
     if (activeTab === 'inventory' && inventoryRecipeDirty
       && !window.confirm('Hay cambios sin guardar en la receta. ¿Salir del inventario y descartarlos?')) return;
@@ -243,11 +246,6 @@ export function OrdersHistory() {
   const [pendingPosOrder, setPendingPosOrder] = useState<{ tableId: string; key: string; items: CreateOrderLine[] } | null>(readPendingPosOrder);
 
   // — Reportes —
-  const [reportData, setReportData] = useState<ReportData | null>(null);
-  const [reportLoading, setReportLoading] = useState(false);
-  const [reportFilterType, setReportFilterType] = useState<'day' | 'range'>('day');
-  const [reportDateFrom, setReportDateFrom] = useState(() => new Date().toISOString().split('T')[0]);
-  const [reportDateTo, setReportDateTo] = useState(() => new Date().toISOString().split('T')[0]);
 
   // — Usuarios —
   const handleLogout = async () => {
@@ -270,20 +268,6 @@ export function OrdersHistory() {
       navigate('/admin/login', { replace: true });
     }
   };
-
-  async function loadReport() {
-    setReportLoading(true);
-    try {
-      const from = reportDateFrom;
-      const to = reportFilterType === 'range' ? reportDateTo : reportDateFrom;
-      const data = await fetchReport(from, to);
-      setReportData(data);
-    } catch {
-      Swal.fire({ icon: 'error', title: 'Error', text: 'No se pudo cargar el reporte.', confirmButtonColor: '#EF4444' });
-    } finally {
-      setReportLoading(false);
-    }
-  }
 
   const loadOrders = useCallback(async () => {
     try {
@@ -783,6 +767,18 @@ export function OrdersHistory() {
   const totalRevenue = orders.reduce((sum, o) => sum + Number(o.total || 0), 0);
   const currentStatusKey = (selectedOrder?.status || 'pending').toLowerCase();
   const flow = STATUS_FLOW[currentStatusKey] ?? STATUS_FLOW['pending'];
+  const activeSection = {
+    orders: { label: 'Pedidos', Icon: ClipboardList },
+    mesas: { label: 'Mesas y Sesiones', Icon: Coffee },
+    caja: { label: 'Caja', Icon: DollarSign },
+    products: { label: 'Productos', Icon: Package },
+    promos: { label: 'Promociones', Icon: Gift },
+    inventory: { label: 'Inventario', Icon: Boxes },
+    pos: { label: 'Nuevo Pedido', Icon: ShoppingCart },
+    reports: { label: 'Reportes', Icon: BarChart3 },
+    users: { label: 'Usuarios', Icon: Users },
+    profile: { label: 'Mi perfil', Icon: UserRound },
+  }[activeTab];
 
   return (
     <div className="admin-layout">
@@ -793,11 +789,11 @@ export function OrdersHistory() {
         id="admin-navigation"
         className={`admin-sidebar${mobileMenuOpen ? ' admin-sidebar--open' : ''}`}
       >
-        <div className="sidebar-header">
-          <img src="/turron-logo.jpg" alt="Logo TURRÓN" />
-          <div>
-            <h2 style={{ fontSize: '1.25rem', color: '#111827', margin: 0, fontWeight: '800', lineHeight: 1.1 }}>TURRÓN</h2>
-            <span style={{ fontSize: '0.75rem', color: '#E0247D', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '1.5px' }}>Pastelería</span>
+        <div className="sidebar-header admin-sidebar__brand">
+          <img src="/turron-logo.jpg" alt="Logotipo de Turrón Pastelería" />
+          <div className="admin-sidebar__brand-copy">
+            <strong>TURRÓN</strong>
+            <span>Pastelería</span>
           </div>
           <button type="button" className="admin-sidebar__close" aria-label="Cerrar menú"
             onClick={() => setMobileMenuOpen(false)}>
@@ -826,6 +822,17 @@ export function OrdersHistory() {
           >
             <Coffee size={20} /> Mesas y Sesiones
           </button>
+          {(userRole === 'admin' || userRole === 'cashier') && (
+            <button
+              onClick={() => navigateTab('caja')}
+              aria-current={activeTab === 'caja' ? 'page' : undefined}
+              style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.85rem 1rem', borderRadius: '8px', border: 'none', background: activeTab === 'caja' ? '#FDF2F8' : 'transparent', color: activeTab === 'caja' ? '#E0247D' : '#4B5563', fontWeight: activeTab === 'caja' ? '600' : '500', cursor: 'pointer', transition: 'all 0.2s ease', textAlign: 'left', fontSize: '1rem' }}
+              onMouseEnter={(e) => { if (activeTab !== 'caja') e.currentTarget.style.backgroundColor = '#F9FAFB'; }}
+              onMouseLeave={(e) => { if (activeTab !== 'caja') e.currentTarget.style.backgroundColor = 'transparent'; }}
+            >
+              <DollarSign size={20} /> Caja
+            </button>
+          )}
           {userRole === 'admin' && (
             <button
               onClick={() => navigateTab('products')}
@@ -866,7 +873,7 @@ export function OrdersHistory() {
           >
             <ShoppingCart size={20} /> Nuevo Pedido
           </button>
-          {userRole === 'admin' && (
+          {(userRole === 'admin' || userRole === 'cashier') && (
             <button
               onClick={() => navigateTab('reports')}
               aria-current={activeTab === 'reports' ? 'page' : undefined}
@@ -921,8 +928,9 @@ export function OrdersHistory() {
               onClick={() => setMobileMenuOpen(open => !open)}>
               {mobileMenuOpen ? <X size={22} aria-hidden="true" /> : <MenuIcon size={22} aria-hidden="true" />}
             </button>
-            <h1 style={{ fontSize: '1.5rem', color: '#111827', margin: 0, fontWeight: '700' }}>
-              {activeTab === 'orders' ? 'Gestión de Pedidos' : activeTab === 'mesas' ? 'Mesas y Sesiones' : activeTab === 'products' ? 'Catálogo de Productos' : activeTab === 'pos' ? 'Punto de Venta' : activeTab === 'users' ? 'Gestión de Usuarios' : activeTab === 'promos' ? 'Promociones y Ofertas' : activeTab === 'inventory' ? 'Inventario de Ingredientes' : activeTab === 'profile' ? 'Mi perfil' : 'Reportes'}
+            <h1>
+              <activeSection.Icon className="admin-topbar__icon" size={18} aria-hidden="true" />
+              <span>{activeSection.label}</span>
             </h1>
           </div>
           <div className="topbar-actions" style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
@@ -959,8 +967,7 @@ export function OrdersHistory() {
         <div className="admin-content">
 
           {activeTab === 'profile' && session && (
-            <section aria-labelledby="profile-title" style={{ maxWidth: '640px', background: '#fff', border: '1px solid #E5E7EB', borderRadius: '12px', padding: '2rem', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
-              <h2 id="profile-title" style={{ margin: '0 0 1.5rem', color: '#111827' }}>Mi perfil</h2>
+            <section aria-label="Perfil de usuario" style={{ maxWidth: '640px', background: '#fff', border: '1px solid #E5E7EB', borderRadius: '12px', padding: '2rem', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
               <dl style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: '1rem', margin: 0 }}>
                 <dt style={{ color: '#6B7280' }}>Nombre</dt>
                 <dd style={{ margin: 0, fontWeight: 600 }}>{session.profile.displayName.trim() || session.user.email}</dd>
@@ -1463,105 +1470,8 @@ export function OrdersHistory() {
           {activeTab === 'inventory' && <Suspense fallback={<div role="status">Cargando inventario…</div>}><InventoryPage onUnsavedChangesChange={setInventoryRecipeDirty} /></Suspense>}
 
           {/* ══ TAB REPORTES ══ */}
-          {activeTab === 'reports' && (
-            <div className="admin-reports" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', height: '100%' }}>
-              {/* Filtro de Fechas */}
-              <div className="reports-filters" style={{ background: '#fff', padding: '1.25rem', borderRadius: '10px', border: '1px solid #E5E7EB', display: 'flex', alignItems: 'flex-end', gap: '1rem', flexWrap: 'wrap' }}>
-                <div>
-                  <label htmlFor="report-filter-type" style={{ display: 'block', fontSize: '0.8rem', fontWeight: '600', color: '#6B7280', marginBottom: '0.35rem' }}>Tipo de filtro</label>
-                  <Dropdown inputId="report-filter-type" value={reportFilterType} options={[{ label: 'Por día', value: 'day' }, { label: 'Rango de fechas', value: 'range' }]}
-                    onChange={event => setReportFilterType(event.value)} />
-                </div>
-                <div>
-                  <label htmlFor="report-date-from" style={{ display: 'block', fontSize: '0.8rem', fontWeight: '600', color: '#6B7280', marginBottom: '0.35rem' }}>{reportFilterType === 'day' ? 'Fecha' : 'Desde'}</label>
-                  <PrimeCalendar inputId="report-date-from" value={toReportDate(reportDateFrom)} onChange={event => setReportDateFrom(fromReportDate(event.value as Date | null))}
-                    dateFormat={CALENDAR_DATE_FORMAT} locale={APP_LOCALE} showIcon />
-                </div>
-                {reportFilterType === 'range' && (
-                  <div>
-                    <label htmlFor="report-date-to" style={{ display: 'block', fontSize: '0.8rem', fontWeight: '600', color: '#6B7280', marginBottom: '0.35rem' }}>Hasta</label>
-                    <PrimeCalendar inputId="report-date-to" value={toReportDate(reportDateTo)} onChange={event => setReportDateTo(fromReportDate(event.value as Date | null))}
-                      dateFormat={CALENDAR_DATE_FORMAT} locale={APP_LOCALE} showIcon minDate={toReportDate(reportDateFrom) ?? undefined} />
-                  </div>
-                )}
-                <Button label={reportLoading ? 'Cargando…' : 'Generar reporte'} icon="pi pi-search"
-                  onClick={() => void loadReport()} disabled={reportLoading} loading={reportLoading} />
-              </div>
-
-              {reportData ? (
-                <>
-                  {/* KPI Cards */}
-                  <div className="reports-metrics" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem' }}>
-                    {/* Total */}
-                    <div style={{ background: '#fff', padding: '1.5rem', borderRadius: '10px', border: '1px solid #E5E7EB', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#6B7280', fontSize: '0.85rem', fontWeight: '600' }}><DollarSign size={18} color="#10B981" /> Ingresos Totales</div>
-                      <strong style={{ fontSize: '1.75rem', color: '#10B981' }}>${Number(reportData.total_income).toFixed(2)}</strong>
-                      <span style={{ fontSize: '0.8rem', color: '#9CA3AF' }}>{Number(reportData.total_transactions)} transacciones</span>
-                    </div>
-                    {/* Efectivo */}
-                    <div style={{ background: '#fff', padding: '1.5rem', borderRadius: '10px', border: '1px solid #E5E7EB', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#6B7280', fontSize: '0.85rem', fontWeight: '600' }}><Banknote size={18} color="#16A34A" /> Efectivo</div>
-                      <strong style={{ fontSize: '1.75rem', color: '#111827' }}>${Number(reportData.income_efectivo).toFixed(2)}</strong>
-                      <span style={{ fontSize: '0.8rem', color: '#9CA3AF' }}>{Number(reportData.count_efectivo)} pagos</span>
-                    </div>
-                    {/* Tarjeta */}
-                    <div style={{ background: '#fff', padding: '1.5rem', borderRadius: '10px', border: '1px solid #E5E7EB', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#6B7280', fontSize: '0.85rem', fontWeight: '600' }}><CreditCard size={18} color="#2563EB" /> Tarjeta</div>
-                      <strong style={{ fontSize: '1.75rem', color: '#111827' }}>${Number(reportData.income_tarjeta).toFixed(2)}</strong>
-                      <span style={{ fontSize: '0.8rem', color: '#9CA3AF' }}>{Number(reportData.count_tarjeta)} pagos</span>
-                    </div>
-                    {/* Transferencia */}
-                    <div style={{ background: '#fff', padding: '1.5rem', borderRadius: '10px', border: '1px solid #E5E7EB', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#6B7280', fontSize: '0.85rem', fontWeight: '600' }}><Smartphone size={18} color="#7C3AED" /> Transferencia</div>
-                      <strong style={{ fontSize: '1.75rem', color: '#111827' }}>${Number(reportData.income_transferencia).toFixed(2)}</strong>
-                      <span style={{ fontSize: '0.8rem', color: '#9CA3AF' }}>{Number(reportData.count_transferencia)} pagos</span>
-                    </div>
-                  </div>
-
-                  {/* Items Vendidos */}
-                  <div style={{ background: '#fff', padding: '1.5rem', borderRadius: '10px', border: '1px solid #E5E7EB' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
-                      <h3 style={{ margin: 0, color: '#111827', fontSize: '1.1rem', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <Package size={20} color="#E0247D" /> Productos Vendidos
-                      </h3>
-                      <span style={{ background: '#FDF2F8', color: '#E0247D', padding: '0.3rem 0.85rem', borderRadius: '20px', fontWeight: '700', fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                        <Hash size={14} /> {reportData.total_items_sold} items
-                      </span>
-                    </div>
-                    {reportData.items_breakdown && reportData.items_breakdown.length > 0 ? (
-                      <div style={{ overflowX: 'auto' }}>
-                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
-                          <thead>
-                            <tr style={{ borderBottom: '2px solid #E5E7EB' }}>
-                              <th style={{ textAlign: 'left', padding: '0.75rem', color: '#6B7280', fontWeight: '600' }}>Producto</th>
-                              <th style={{ textAlign: 'center', padding: '0.75rem', color: '#6B7280', fontWeight: '600' }}>Cantidad</th>
-                              <th style={{ textAlign: 'right', padding: '0.75rem', color: '#6B7280', fontWeight: '600' }}>Ingresos</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {reportData.items_breakdown.map((item, idx: number) => (
-                              <tr key={idx} style={{ borderBottom: '1px solid #F3F4F6' }}>
-                                <td style={{ padding: '0.75rem', color: '#111827', fontWeight: '500' }}>{item.product_name}</td>
-                                <td style={{ padding: '0.75rem', textAlign: 'center', color: '#374151' }}>{Number(item.total_qty)}</td>
-                                <td style={{ padding: '0.75rem', textAlign: 'right', color: '#10B981', fontWeight: '600' }}>${Number(item.total_revenue).toFixed(2)}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    ) : (
-                      <p style={{ textAlign: 'center', color: '#9CA3AF', padding: '2rem' }}>No hay productos vendidos en este período.</p>
-                    )}
-                  </div>
-                </>
-              ) : (
-                <div style={{ textAlign: 'center', padding: '5rem', color: '#9CA3AF' }}>
-                  <BarChart3 size={64} style={{ marginBottom: '1rem', opacity: 0.3 }} />
-                  <p style={{ fontSize: '1.1rem', fontWeight: '500' }}>Selecciona una fecha y genera tu reporte</p>
-                </div>
-              )}
-            </div>
-          )}
+          {activeTab === 'caja' && (userRole === 'admin' || userRole === 'cashier') && <CajaPage initialSessionId={cashSessionId} />}
+          {activeTab === 'reports' && (userRole === 'admin' || userRole === 'cashier') && <ReportsPage />}
 
           {/* ══ TAB USUARIOS ══ */}
           {activeTab === 'users' && userRole === 'admin' && <UsersAdmin />}

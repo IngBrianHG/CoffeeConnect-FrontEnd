@@ -11,6 +11,7 @@ import { InputNumber } from 'primereact/inputnumber';
 import { InputText } from 'primereact/inputtext';
 import { InputSwitch } from 'primereact/inputswitch';
 import { Tag } from 'primereact/tag';
+import { TabPanel, TabView } from 'primereact/tabview';
 import { useAuth } from '../../auth/AuthContext';
 import { APP_LOCALE, CALENDAR_DATE_FORMAT } from '../../config/primeReact';
 import { ApiError, httpClient } from '../../services/http/client.ts';
@@ -28,6 +29,7 @@ import { useProductStockAdjustment } from './useProductStockAdjustment';
 import './inventory.css';
 
 type Tab = 'ingredients' | 'products' | 'recipes' | 'movements';
+const tabOrder: Tab[] = ['ingredients', 'products', 'recipes', 'movements'];
 
 const messages: Record<string, string> = {
   INSUFFICIENT_STOCK: 'El ajuste supera el stock disponible. Revisa el saldo e inténtalo de nuevo.',
@@ -514,13 +516,8 @@ export function InventoryPage({ onUnsavedChangesChange }: { onUnsavedChangesChan
     ? `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`
     : '';
   return (
-    <section className="inventory-page" aria-labelledby="inventory-heading">
+    <section className="inventory-page" aria-label="Inventario">
       <header className="inventory-heading">
-        <div>
-          <span className="inventory-eyebrow">OPERACIÓN · EXISTENCIAS</span>
-          <h2 id="inventory-heading">Inventario y recetas</h2>
-          <p>Control auditable de ingredientes, preparación y movimientos.</p>
-        </div>
         <Button type="button" label={refreshing ? 'Actualizando…' : 'Actualizar'} icon="pi pi-refresh" outlined severity="secondary" onClick={() => void load()} disabled={loading || refreshing} />
       </header>
 
@@ -532,20 +529,17 @@ export function InventoryPage({ onUnsavedChangesChange }: { onUnsavedChangesChan
         </div>
       )}
 
-      <nav className="inventory-tabs" aria-label="Secciones de inventario">
-        {([
-          ['ingredients', 'Ingredientes', Boxes],
-          ['products', 'Productos terminados', PackagePlus],
-          ['recipes', 'Recetas', ClipboardList],
-          ['movements', 'Movimientos', History],
-        ] as const).map(([key, label, Icon]) => (
-          <button key={key} type="button" className={tab === key ? 'is-active' : ''} onClick={() => changeTab(key)} aria-current={tab === key ? 'page' : undefined}>
-            <Icon size={17} aria-hidden="true" /> {label}
-          </button>
-        ))}
-      </nav>
+      <TabView
+        activeIndex={tabOrder.indexOf(tab)}
+        onTabChange={event => {
+          const nextTab = tabOrder[event.index];
+          if (nextTab) changeTab(nextTab);
+        }}
+        className="admin-section-tabs"
+      >
+        <TabPanel header={<><Boxes size={17} aria-hidden="true" /> Ingredientes</>}>
 
-      {tab === 'ingredients' && (
+        {tab === 'ingredients' && (
         <div className="inventory-card">
           <div className="inventory-card-heading">
             <div><h3>Ingredientes</h3><p>Unidades base: gramos, mililitros y unidades.</p></div>
@@ -590,9 +584,11 @@ export function InventoryPage({ onUnsavedChangesChange }: { onUnsavedChangesChan
             </>
           )}
         </div>
-      )}
+        )}
+        </TabPanel>
 
-      {tab === 'products' && (
+        <TabPanel header={<><PackagePlus size={17} aria-hidden="true" /> Productos terminados</>}>
+        {tab === 'products' && (
         <div className="inventory-card">
           <div className="inventory-card-heading"><div><h3>Productos terminados</h3><p>El stock propio solo se ajusta si el producto no depende de una receta.</p></div></div>
           <label className="inventory-field inventory-product-select"><span>Buscar producto</span><InputText type="search" value={productSearch} onChange={event => setProductSearch(event.target.value)} placeholder="Nombre del producto" /></label>
@@ -606,21 +602,11 @@ export function InventoryPage({ onUnsavedChangesChange }: { onUnsavedChangesChan
             </DataTable></div>
           </>}
         </div>
-      )}
+        )}
+        </TabPanel>
 
-      <ProductStockAdjustmentDialog
-        product={selectedStockProduct}
-        draft={productAdjustmentDraft}
-        error={productAdjustmentError}
-        success={productAdjustmentSuccess}
-        balanceMessage={productBalanceMessage}
-        saving={productAdjustmentSubmitting}
-        onDraftChange={updateProductAdjustmentDraft}
-        onClose={closeProductAdjustment}
-        onSubmit={submitProductAdjustment}
-      />
-
-      {tab === 'recipes' && (
+        <TabPanel header={<><ClipboardList size={17} aria-hidden="true" /> Recetas</>}>
+        {tab === 'recipes' && (
         <form className="inventory-card" onSubmit={saveRecipe}>
           <div className="inventory-card-heading">
             <div><h3>Receta por producto</h3><p>Guardar reemplaza la receta completa; eliminar requiere una acción y confirmación separadas.</p></div>
@@ -688,9 +674,11 @@ export function InventoryPage({ onUnsavedChangesChange }: { onUnsavedChangesChan
           )}
           {recipe.length > 0 && <p className="inventory-helper">Hay {recipe.length} ingrediente{recipe.length === 1 ? '' : 's'} en la receta guardada. Los pedidos existentes conservan sus snapshots.</p>}
         </form>
-      )}
+        )}
+        </TabPanel>
 
-      {tab === 'movements' && (
+        <TabPanel header={<><History size={17} aria-hidden="true" /> Movimientos</>}>
+        {tab === 'movements' && (
         <div className="inventory-card">
           <div className="inventory-card-heading">
             <div><h3>Libro de movimientos</h3><p>Historial de solo lectura; cada ajuste se registra mediante RPC.</p></div>
@@ -727,7 +715,21 @@ export function InventoryPage({ onUnsavedChangesChange }: { onUnsavedChangesChan
             <Column header="Usuario" body={(movement: InventoryMovement) => movement.createdBy ? 'Personal autorizado' : '—'} />
           </DataTable></div></>}
         </div>
-      )}
+        )}
+        </TabPanel>
+      </TabView>
+
+      <ProductStockAdjustmentDialog
+        product={selectedStockProduct}
+        draft={productAdjustmentDraft}
+        error={productAdjustmentError}
+        success={productAdjustmentSuccess}
+        balanceMessage={productBalanceMessage}
+        saving={productAdjustmentSubmitting}
+        onDraftChange={updateProductAdjustmentDraft}
+        onClose={closeProductAdjustment}
+        onSubmit={submitProductAdjustment}
+      />
 
       {form && <Dialog visible modal header={form.id ? 'Editar ingrediente' : 'Nuevo ingrediente'} className="inventory-dialog" closable={!saving} closeOnEscape={!saving} dismissableMask={!saving} onHide={() => { if (!saving) setForm(null); }}>
         <form className="inventory-modal" onSubmit={saveIngredient}>

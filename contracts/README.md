@@ -14,10 +14,10 @@ Los documentos de contexto y arquitectura permanecen en `frontend/docs/` y `docs
 6. [Mesas y sesiones](06-mesas-y-sesiones.md) — administración de mesas, apertura idempotente y cierre seguro de sesiones.
 7. [Órdenes kiosco/POS](07-ordenes-kiosco-pos.md) — ciclo de vida de órdenes, stock previo en POS, mesa operativa `Para llevar`, estados e idempotencia.
 8. [Cuenta de mesa y pagos](08-cuenta-y-pagos.md) — cuenta agrupada por sesión, pagos parciales/divididos entre pedidos y cierre seguro.
+9. [Caja](09-caja.md) — listado operativo de sesiones abiertas y navegación a cuentas; reutiliza lectura y cobro del contrato 08. Implementación inicial local; requiere validar roles y flujo en staging.
+10. [Reportes de ventas](10-reportes.md) — ventas por mesa y día/rango sobre snapshots y ledger existentes. Servicio y vista iniciales locales; RPC SQL propuesta sin aplicar.
 
-## Siguientes contratos según el plan de migración
-
-9. **Reportes, importación, conciliación y corte** (etapa 5).
+Las pantallas/servicios locales de los contratos 09 y 10 no acreditan que la RPC propuesta esté aplicada ni que Supabase remoto, RLS, zona horaria o permisos hayan sido validados. Importación, conciliación, reembolsos y corte de caja siguen fuera de alcance.
 
 ## Flujo de trabajo para cada contrato
 

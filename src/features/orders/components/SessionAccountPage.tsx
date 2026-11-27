@@ -8,6 +8,7 @@ import { InputNumber } from 'primereact/inputnumber';
 import { InputText } from 'primereact/inputtext';
 import { Message } from 'primereact/message';
 import { Tag } from 'primereact/tag';
+import Swal from 'sweetalert2';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../../auth/AuthContext';
 import { ApiError, httpClient } from '../../../services/http/client';
@@ -86,13 +87,13 @@ export function SessionAccountPage({
   const [paying, setPaying] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const [method, setMethod] = useState<PaymentMethod>('cash');
-  const [payerLabel, setPayerLabel] = useState('');
-  const [reference, setReference] = useState('');
-  const [amounts, setAmounts] = useState<Record<string, number>>({});
   const [pending, setPending] = useState<PendingPayment | null>(() => readPending(sessionId));
   const [pendingClose, setPendingClose] = useState<PendingClose | null>(() => readPendingClose(sessionId));
-  const [confirmVisible, setConfirmVisible] = useState(false);
+  const [method, setMethod] = useState<PaymentMethod>(() => pending?.method ?? 'cash');
+  const [payerLabel, setPayerLabel] = useState(() => pending?.payerLabel ?? '');
+  const [reference, setReference] = useState(() => pending?.reference ?? '');
+  const [amounts, setAmounts] = useState<Record<string, number>>(() =>
+    Object.fromEntries((pending?.allocations ?? []).map(allocation => [allocation.orderItemId, allocation.amount])));
   const [closeDialogVisible, setCloseDialogVisible] = useState(false);
   const [preparedDispositions, setPreparedDispositions] = useState<Record<string, PreparedOrderDisposition | ''>>({});
 
@@ -157,7 +158,6 @@ export function SessionAccountPage({
       payerLabel: payerLabel.trim() || null,
       reference: reference.trim() || null,
     };
-    setConfirmVisible(false);
     setPaying(true);
     setError('');
     setNotice('');
@@ -167,11 +167,11 @@ export function SessionAccountPage({
         sessionId, intent.method, intent.allocations, intent.key, intent.payerLabel, intent.reference,
       );
       setPending(null);
-      setAmounts({});
       setNotice(result.idempotentReplay
         ? `Se confirmó el pago anterior por ${currency(result.amount)}.`
         : `Pago registrado por ${currency(result.amount)}.${result.sessionClosed ? ' La sesión se cerró y la mesa quedó disponible.' : ''}`);
       await load();
+      setAmounts({});
       if (result.sessionClosed) await onSessionClosed?.();
     } catch (cause) {
       const ambiguous = cause instanceof ApiError && (cause.status === 0 || cause.status >= 500);
@@ -190,8 +190,34 @@ export function SessionAccountPage({
 
   const activeOrders = account?.orders.filter(order => ['pending', 'confirmed', 'preparing', 'ready'].includes(order.status)) ?? [];
   const preparedOrders = activeOrders.filter(order => order.status === 'preparing' || order.status === 'ready');
+  const orderedOrders = useMemo(() => [...(account?.orders ?? [])].sort((left, right) =>
+    Date.parse(left.createdAt) - Date.parse(right.createdAt) || left.id.localeCompare(right.id)),
+  [account?.orders]);
   const canCloseWithCancellations = Boolean(account && account.sessionStatus === 'open'
     && account.balance === 0 && activeOrders.length > 0);
+
+  async function confirmPayment() {
+    if (!account || allocations.length === 0 || paying) return;
+    try {
+      validatePaymentAllocations(allocations, account.lines, method);
+    } catch (cause) {
+      setError(accountErrorMessage(cause));
+      return;
+    }
+    const confirmation = await Swal.fire({
+      title: 'Confirmar cobro',
+      text: `${allocations.length} línea(s) · ${currency(amountTotal)} mediante ${METHODS[method]}. Saldo después del pago: ${currency(projectedBalance)}.`,
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonText: 'Confirmar cobro',
+      cancelButtonText: 'Seguir editando',
+      confirmButtonColor: '#6f4e37',
+      reverseButtons: true,
+      focusCancel: true,
+      customClass: { container: 'account-payment-swal-container' },
+    });
+    if (confirmation.isConfirmed) await submitPayment();
+  }
 
   async function closeAndCancel(retry = false) {
     if (!account || paying) return;
@@ -233,14 +259,21 @@ export function SessionAccountPage({
   }
 
   return <div className="account-page" aria-labelledby="account-heading">
-    <div className="flex align-items-center justify-content-between flex-wrap gap-2">
+    <header className="account-page__header">
       <div>
-        <h3 id="account-heading" className="mt-0 mb-1">{account?.tableName ?? 'Cuenta de sesión'}</h3>
-        {account && <p className="mt-0 mb-0">Sesión {account.tableSessionId.slice(0, 8)} · Apertura {new Date(account.openedAt).toLocaleString('es-SV')}</p>}
+        <h3 id="account-heading">{account?.tableName ?? 'Cuenta de sesión'}</h3>
+        {account && <p>
+          Sesión #{account.tableSessionId.slice(0, 8)} · Apertura{' '}
+          <time dateTime={account.openedAt}>{new Date(account.openedAt).toLocaleString('es-SV')}</time>
+        </p>}
       </div>
-      <Button label="Actualizar cuenta" icon="pi pi-refresh" outlined severity="secondary" loading={loading}
-        onClick={() => void load()} disabled={paying} />
-    </div>
+      <div className="account-page__header-actions">
+        {account && <Tag value={account.sessionStatus === 'open' ? 'Abierta' : account.sessionStatus === 'closed' ? 'Cerrada' : 'Cancelada'}
+          severity={account.sessionStatus === 'open' ? 'warning' : 'secondary'} />}
+        <Button label="Actualizar" aria-label="Actualizar cuenta" icon="pi pi-refresh" outlined severity="secondary" loading={loading}
+          onClick={() => void load()} disabled={paying} />
+      </div>
+    </header>
     {error && <Message severity="error" text={error} />}
     {notice && <Message severity="success" text={notice} />}
     {pending && <Message severity="warn" text="Hay un pago con resultado ambiguo. Reintenta solo con esta clave e importes." />}
@@ -250,29 +283,33 @@ export function SessionAccountPage({
         <div className="account-metric"><strong>Total servido</strong><div>{currency(account.totalServed)}</div></div>
         <div className="account-metric"><strong>Total pagado</strong><div>{currency(account.totalPaid)}</div></div>
         <div className="account-metric account-metric--balance"><strong>Saldo por cobrar</strong><div>{currency(account.balance)}</div></div>
-        <div className="account-metric"><strong>Estado</strong><div><Tag
-          value={account.sessionStatus === 'open' ? 'Sesión abierta' : account.sessionStatus === 'closed' ? 'Sesión cerrada' : 'Sesión cancelada'}
-          severity={account.sessionStatus === 'open' ? 'warning' : 'success'} /></div></div>
       </div>
       {activeOrders.length > 0 && <Message severity="warn" text={account.balance > 0
         ? 'Hay órdenes no entregadas y saldo pendiente de órdenes entregadas. Cobra todo lo servido antes de cerrar.'
         : 'El saldo servido está pagado, pero quedan órdenes no entregadas. Para cerrar la mesa debes cancelarlas explícitamente.'} />}
-      {account.orders.map(order => <section className="account-order-card" key={order.id}>
-        <header className="flex align-items-center justify-content-between flex-wrap gap-2">
-          <strong>Orden {order.id.slice(0, 8)} · {new Date(order.createdAt).toLocaleString('es-SV')}</strong>
+      <div className="account-workspace">
+        <div className="account-workspace__details">
+          <div className="account-order-list">
+            {orderedOrders.length === 0 && <p className="account-empty">Esta sesión todavía no tiene órdenes.</p>}
+            {orderedOrders.map(order => <section className="account-order-card" key={order.id}>
+        <header className="account-order-card__header">
+          <div>
+            <strong>Orden #{order.id.slice(0, 8)}</strong>
+            <time dateTime={order.createdAt}>{new Date(order.createdAt).toLocaleTimeString('es-SV', { hour: '2-digit', minute: '2-digit' })}</time>
+          </div>
           <Tag value={order.status === 'served' ? 'Entregada' : order.status === 'cancelled' ? 'Cancelada' : 'No cobrable'}
             severity={order.status === 'served' ? 'success' : order.status === 'cancelled' ? 'secondary' : 'warning'} />
         </header>
-        {order.notes && <p className="mt-2 mb-2"><strong>Notas:</strong> {order.notes}</p>}
+        {order.notes && <p className="account-order-card__notes"><strong>Notas:</strong> {order.notes}</p>}
         <DataTable value={account.lines.filter(line => line.orderId === order.id)} dataKey="orderItemId"
           size="small" responsiveLayout="scroll" emptyMessage="Esta orden no tiene líneas.">
           <Column field="productName" header="Producto" />
           <Column field="quantity" header="Cant." />
-          <Column header="Subtotal" body={(line: AccountLine) => currency(line.lineTotal)} />
+          <Column header="Total" body={(line: AccountLine) => currency(line.lineTotal)} />
           <Column header="Pagado" body={(line: AccountLine) => currency(line.paidAmount)} />
           <Column header="Saldo" body={(line: AccountLine) => currency(line.balance)} />
           <Column header="Cobro" body={(line: AccountLine) => line.orderStatus === 'served'
-            ? <div className="flex align-items-center gap-2 flex-wrap">
+            ? <div className="account-line-payment">
               <InputNumber inputId={`amount-${line.orderItemId}`} value={amounts[line.orderItemId] ?? null}
                 onValueChange={event => setAmounts(current => {
                   const next = { ...current };
@@ -280,14 +317,17 @@ export function SessionAccountPage({
                   return next;
                 })}
                 mode="currency" currency="USD" locale="es-SV" min={0} max={line.balance}
-                minFractionDigits={2} maxFractionDigits={2} inputStyle={{ width: '8rem' }} />
-              <Button label="Saldo" text onClick={() => setAmounts(current => ({ ...current, [line.orderItemId]: line.balance }))} disabled={line.balance <= 0} />
+                minFractionDigits={2} maxFractionDigits={2} inputStyle={{ width: '6.5rem' }}
+                disabled={paying || Boolean(pending)} />
+              <Button label="Saldo" text onClick={() => setAmounts(current => ({ ...current, [line.orderItemId]: line.balance }))}
+                disabled={line.balance <= 0 || paying || Boolean(pending)} />
             </div>
             : <Tag value="No cobrable" severity="secondary" />} />
         </DataTable>
-      </section>)}
+            </section>)}
+          </div>
       {account.payments.length > 0 && <section className="account-history-card">
-        <h4 className="mb-2">Pagos recientes</h4>
+        <h4>Pagos recientes</h4>
         <DataTable value={account.payments} dataKey="id" size="small" responsiveLayout="scroll">
           <Column header="Fecha" body={(payment) => new Date(payment.createdAt).toLocaleString('es-SV')} />
           <Column header="Método" body={(payment: SessionPayment) => METHODS[payment.method]} />
@@ -298,65 +338,65 @@ export function SessionAccountPage({
             .map(allocation => `${allocation.orderItemId.slice(0, 8)} · ${currency(allocation.amount)}`).join(' | ')} />
         </DataTable>
       </section>}
-      {canCloseWithCancellations && <section className="account-close-card">
-        <strong>Cierre de cuenta</strong>
-        <p className="m-0">El saldo de lo entregado está pagado. Si continúas, se cancelarán las órdenes no entregadas y se cerrará/liberará esta sesión.</p>
-        <div className="flex flex-wrap gap-2">
-          <Button label="Revisar cancelación y cerrar mesa" icon="pi pi-lock" severity="warning"
-            disabled={paying || Boolean(pendingClose)} onClick={() => {
-              setPreparedDispositions({});
-              setCloseDialogVisible(true);
-            }} />
-          {pendingClose && <Button label="Reintentar cierre pendiente" icon="pi pi-refresh" severity="warning"
-            loading={paying} onClick={() => void closeAndCancel(true)} />}
         </div>
-      </section>}
-      {canPay && account.sessionStatus === 'open' && <section className="account-payment-card">
-        <h4 className="mt-0 mb-0">Registrar pago</h4>
-        <div className="flex flex-wrap gap-2">
-          <Button label="Cobrar todo lo elegible" outlined severity="secondary" onClick={setAllEligible}
-            disabled={account.balance <= 0 || paying} />
-          {pending && <Button label="Reintentar intención" severity="warning" loading={paying}
-            onClick={() => void submitPayment(true)} />}
-        </div>
-        <div className="grid">
-          <div className="col-12 md:col-4">
-            <label htmlFor="payment-method" className="block mb-2">Método</label>
-            <Dropdown inputId="payment-method" value={method}
-              options={Object.entries(METHODS).map(([value, label]) => ({ value: value as PaymentMethod, label }))}
-              optionLabel="label" optionValue="value" className="w-full" onChange={event => setMethod(event.value)} disabled={paying} />
-          </div>
-          <div className="col-12 md:col-4">
-            <label htmlFor="payer-label" className="block mb-2">Pagador (opcional)</label>
-            <InputText id="payer-label" value={payerLabel} maxLength={80} className="w-full"
-              onChange={event => setPayerLabel(event.target.value)} disabled={paying} />
-          </div>
-          <div className="col-12 md:col-4">
-            <label htmlFor="payment-reference" className="block mb-2">Referencia (opcional)</label>
-            <InputText id="payment-reference" value={reference} maxLength={120} className="w-full"
-              onChange={event => setReference(event.target.value)} disabled={paying} />
-          </div>
-        </div>
-        <div className="account-payment-summary">
-          <div><span>Pago seleccionado</span><strong>{currency(amountTotal)}</strong></div>
-          <div><span>Saldo después del pago</span><strong>{currency(projectedBalance)}</strong></div>
-          <Button label="Continuar" icon="pi pi-arrow-right" iconPos="right" disabled={allocations.length === 0 || paying}
-            loading={paying} onClick={() => setConfirmVisible(true)} />
-        </div>
-        {confirmVisible && <div className="border-top-1 pt-3">
-          <p className="mt-0">Se cobrarán {allocations.length} línea(s) por {currency(amountTotal)} mediante {METHODS[method]}.</p>
-          {projectedBalance === 0 && activeOrders.length === 0 &&
-            <Message severity="warn" text="Este pago completará la cuenta y cerrará la sesión; la mesa quedará disponible para una nueva sesión." />}
-          {projectedBalance === 0 && activeOrders.length > 0 &&
-            <Message severity="info" text="El saldo servido quedará pagado. La sesión seguirá abierta hasta revisar y confirmar la cancelación de las órdenes no entregadas." />}
-          <div className="flex gap-2">
-            <Button label="Cancelar" severity="secondary" outlined onClick={() => setConfirmVisible(false)} disabled={paying} />
-            <Button label="Registrar pago" loading={paying} onClick={() => void submitPayment(false)} />
-          </div>
-        </div>}
-      </section>}
-      {!canPay && account.sessionStatus === 'open' &&
-        <Message severity="info" text="Tu rol puede consultar la cuenta, pero no puede registrar pagos." />}
+        <aside className="account-workspace__aside" aria-label="Registro y resumen del pago">
+          {canPay && account.sessionStatus === 'open' ? <>
+            <section className="account-payment-card">
+              <div className="account-payment-card__heading">
+                <h4>Registrar pago</h4>
+                <Button label="Cobrar todo" outlined severity="secondary" onClick={setAllEligible}
+                  disabled={account.balance <= 0 || paying || Boolean(pending)} />
+              </div>
+              <div className="account-payment-fields">
+                <div>
+                  <label htmlFor="payment-method">Método de pago</label>
+                  <Dropdown inputId="payment-method" value={method}
+                    options={Object.entries(METHODS).map(([value, label]) => ({ value: value as PaymentMethod, label }))}
+                    optionLabel="label" optionValue="value" className="w-full" onChange={event => setMethod(event.value)} disabled={paying || Boolean(pending)} />
+                </div>
+                <div>
+                  <label htmlFor="payer-label">Pagador (opcional)</label>
+                  <InputText id="payer-label" value={payerLabel} maxLength={80} className="w-full"
+                    onChange={event => setPayerLabel(event.target.value)} disabled={paying || Boolean(pending)} />
+                </div>
+                <div>
+                  <label htmlFor="payment-reference">Referencia (opcional)</label>
+                  <InputText id="payment-reference" value={reference} maxLength={120} className="w-full"
+                    onChange={event => setReference(event.target.value)} disabled={paying || Boolean(pending)} />
+                </div>
+              </div>
+              <div className="account-payment-summary" aria-live="polite">
+                <div><span>Pago seleccionado</span><strong>{currency(amountTotal)}</strong></div>
+                <div><span>Saldo después</span><strong>{currency(projectedBalance)}</strong></div>
+                <Button label={pending ? 'Resolver pago pendiente' : 'Cobrar'}
+                  icon={pending ? 'pi pi-refresh' : 'pi pi-check'}
+                  disabled={pending ? paying : allocations.length === 0 || paying}
+                  loading={paying} onClick={() => pending ? void submitPayment(true) : void confirmPayment()} />
+              </div>
+              {projectedBalance === 0 && amountTotal > 0 && <small className="account-payment-hint">
+                {activeOrders.length === 0
+                  ? 'Al completar el cobro, la sesión se cerrará y la mesa quedará disponible.'
+                  : 'Quedarán pagadas las órdenes entregadas; revisa las órdenes no entregadas para cerrar la mesa.'}
+              </small>}
+            </section>
+            {canCloseWithCancellations && <section className="account-close-card">
+              <div>
+                <strong>Cierre de cuenta</strong>
+                <small>Saldo liquidado · {activeOrders.length} orden(es) por revisar</small>
+              </div>
+              <Button label="Revisar y cerrar" icon="pi pi-lock" severity="warning"
+                disabled={paying || Boolean(pendingClose)} onClick={() => {
+                  setPreparedDispositions({});
+                  setCloseDialogVisible(true);
+                }} />
+              {pendingClose && <Button label="Reintentar cierre" icon="pi pi-refresh" severity="warning"
+                loading={paying} onClick={() => void closeAndCancel(true)} />}
+            </section>}
+          </> : canPay
+            ? <Message severity="info" text="Esta sesión ya no admite nuevos cobros." />
+            : <Message severity="info" text="Tu rol puede consultar la cuenta, pero no registrar pagos." />}
+        </aside>
+      </div>
       <Dialog visible={closeDialogVisible} modal header="Confirmar cierre de cuenta"
         className="w-11 md:w-8 lg:w-6" contentStyle={{ maxHeight: '75vh', overflow: 'auto' }}
         onHide={() => !paying && setCloseDialogVisible(false)}

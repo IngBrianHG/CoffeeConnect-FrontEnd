@@ -40,6 +40,7 @@ const TABLE_STATUSES = new Set<TableStatus>(['available', 'assigned', 'occupied'
 const SESSION_STATUSES = new Set<TableSessionStatus>(['open', 'closed', 'cancelled']);
 const TABLE_SELECT = 'id,name,status,active,created_at,updated_at';
 const SESSION_SELECT = 'id,table_id,status,opened_by,opened_at,closed_at';
+const PAGE_SIZE = 200;
 
 type Row = Record<string, unknown>;
 
@@ -108,6 +109,23 @@ function parseList<T>(value: unknown, resource: string, parse: (row: unknown) =>
   return parsed;
 }
 
+async function loadAllPages<T extends { id: string }>(
+  resource: string,
+  loadPage: (offset: number) => Promise<unknown>,
+  parse: (row: unknown) => T,
+): Promise<T[]> {
+  const result: T[] = [];
+  let offset = 0;
+  while (true) {
+    const page = parseList(await loadPage(offset), resource, parse);
+    const seenIds = new Set(result.map(item => item.id));
+    if (page.some(item => seenIds.has(item.id))) return invalid(resource);
+    result.push(...page);
+    if (page.length < PAGE_SIZE) return result;
+    offset += page.length;
+  }
+}
+
 function representation(value: unknown, resource: string): CafeTable {
   if (!Array.isArray(value) || value.length !== 1) return invalid(resource);
   return parseTable(value[0]);
@@ -140,20 +158,21 @@ export function createCafeTablesService(
 
   return {
     async listTables(signal) {
-      const value = await request<unknown>('cafe_tables', {
+      return loadAllPages('mesas', offset => request<unknown>('cafe_tables', {
         method: 'GET',
-        query: { select: TABLE_SELECT, order: 'name.asc', limit: '200' },
+        query: { select: TABLE_SELECT, order: 'name.asc,id.asc', limit: String(PAGE_SIZE), offset: String(offset) },
         signal,
-      });
-      return parseList(value, 'mesas', parseTable);
+      }), parseTable);
     },
     async listOpenSessions(signal) {
-      const value = await request<unknown>('table_sessions', {
+      const items = await loadAllPages('sesiones', offset => request<unknown>('table_sessions', {
         method: 'GET',
-        query: { select: SESSION_SELECT, status: 'eq.open', order: 'opened_at.desc', limit: '200' },
+        query: {
+          select: SESSION_SELECT, status: 'eq.open', order: 'opened_at.desc,id.desc',
+          limit: String(PAGE_SIZE), offset: String(offset),
+        },
         signal,
-      });
-      const items = parseList(value, 'sesiones', parseSession);
+      }), parseSession);
       const tableIds = new Set<string>();
       for (const item of items) {
         if (tableIds.has(item.tableId)) return invalid('sesiones');

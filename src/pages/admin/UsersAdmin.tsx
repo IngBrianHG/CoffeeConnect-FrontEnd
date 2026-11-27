@@ -5,7 +5,9 @@ import { confirmDialog, ConfirmDialog } from 'primereact/confirmdialog';
 import { DataTable } from 'primereact/datatable';
 import { Dialog } from 'primereact/dialog';
 import { Dropdown } from 'primereact/dropdown';
+import { IconField } from 'primereact/iconfield';
 import { InputText } from 'primereact/inputtext';
+import { InputIcon } from 'primereact/inputicon';
 import { Menu } from 'primereact/menu';
 import type { MenuItem } from 'primereact/menuitem';
 import { Message } from 'primereact/message';
@@ -180,19 +182,25 @@ export function UsersAdmin() {
     { label: 'Inactivos', value: false },
   ];
 
-  return <section className="users-admin" aria-labelledby="users-heading">
+  return <section className="users-admin" aria-label="Usuarios">
     <Toast ref={toast} />
     <ConfirmDialog />
     <Menu model={actions} popup ref={actionMenu} />
     <header className="users-admin__header">
-      <div><h2 id="users-heading"><i className="pi pi-users" aria-hidden="true" /> Cuentas del equipo</h2><p>Administra las cuentas, roles y acceso del personal.</p></div>
       <Button label="Registrar empleado" icon="pi pi-user-plus" onClick={() => { setError(''); setCreateOpen(true); }} />
     </header>
     {error && !createOpen && !editing && !credentials && <div className="users-admin__error" role="alert"><i className="pi pi-exclamation-triangle" /> <span>{error}</span><Button label="Reintentar" text onClick={() => void load()} /></div>}
     <div className="users-admin__filters">
-      <span className="p-input-icon-left users-admin__search"><i className="pi pi-search" /><InputText value={search} onChange={event => setSearch(event.target.value)} placeholder="Buscar por nombre o correo" aria-label="Buscar personal" /></span>
-      <Dropdown value={roleFilter} options={[{ label: 'Todos los roles', value: null }, ...roleOptions]} onChange={event => setRoleFilter(event.value)} aria-label="Filtrar por rol" />
-      <Dropdown value={statusFilter} options={statusOptions} onChange={event => setStatusFilter(event.value)} aria-label="Filtrar por estado" />
+      <IconField iconPosition="left" className="users-admin__search">
+        <InputIcon className="pi pi-search" aria-hidden="true" />
+        <InputText value={search} onChange={event => setSearch(event.target.value)}
+          placeholder="Buscar por nombre o correo" aria-label="Buscar personal" />
+      </IconField>
+      <Dropdown value={roleFilter} options={[{ label: 'Todos los roles', value: null }, ...roleOptions]}
+        optionLabel="label" optionValue="value" onChange={event => setRoleFilter(event.value)}
+        aria-label="Filtrar por rol" />
+      <Dropdown value={statusFilter} options={statusOptions} optionLabel="label" optionValue="value"
+        onChange={event => setStatusFilter(event.value)} aria-label="Filtrar por estado" />
     </div>
     <div className="users-admin__table">
       <DataTable value={filteredUsers} dataKey="id" size="small" stripedRows loading={loading && users.length === 0}

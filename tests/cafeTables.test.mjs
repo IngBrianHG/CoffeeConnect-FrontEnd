@@ -9,6 +9,7 @@ const tableId = '11111111-1111-4111-8111-111111111111';
 const sessionId = '22222222-2222-4222-8222-222222222222';
 const key = '33333333-3333-4333-8333-333333333333';
 const stamp = '2026-11-26T12:00:00.000Z';
+const uuidFor = index => `${index.toString(16).padStart(8, '0')}-1111-4111-8111-111111111111`;
 const table = {
   id: tableId, name: 'Mesa 1', status: 'available', active: true,
   created_at: stamp, updated_at: stamp,
@@ -43,6 +44,33 @@ test('maps table/session fields and rejects malformed UUIDs, enums, timestamps a
   await assert.rejects(service(() => [{ ...table, created_at: 'bad-time' }]).api.listTables(), { code: 'INVALID_RESPONSE' });
   await assert.rejects(service(() => [{ ...session, closed_at: stamp }]).api.listOpenSessions(), { code: 'INVALID_RESPONSE' });
   await assert.rejects(service(() => [session, { ...session, id: '44444444-4444-4444-8444-444444444444' }]).api.listOpenSessions(), { code: 'INVALID_RESPONSE' });
+});
+
+test('loads every table and open session page with stable offsets', async () => {
+  const tables = Array.from({ length: 201 }, (_, index) => ({
+    ...table,
+    id: uuidFor(index),
+    name: `Mesa ${index}`,
+  }));
+  const sessions = tables.map((item, index) => ({
+    ...session,
+    id: uuidFor(index + 1000),
+    table_id: item.id,
+  }));
+  const { api, calls } = service((resource, options) => {
+    const offset = Number(options.query.offset);
+    if (resource === 'cafe_tables') return tables.slice(offset, offset + 200);
+    if (resource === 'table_sessions') return sessions.slice(offset, offset + 200);
+    return [];
+  });
+
+  const [allTables, allSessions] = await Promise.all([api.listTables(), api.listOpenSessions()]);
+
+  assert.equal(allTables.length, 201);
+  assert.equal(allSessions.length, 201);
+  assert.deepEqual(calls.filter(call => call.resource === 'cafe_tables').map(call => call.options.query.offset), ['0', '200']);
+  assert.deepEqual(calls.filter(call => call.resource === 'table_sessions').map(call => call.options.query.offset), ['0', '200']);
+  assert.equal(calls.find(call => call.resource === 'table_sessions').options.query.order, 'opened_at.desc,id.desc');
 });
 
 test('sends only allowed table fields and the exact RPC payloads', async () => {

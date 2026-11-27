@@ -176,13 +176,13 @@ export function AdminCatalogPage() {
     () => filterAdminProducts(products, categories, searchTerm),
     [categories, products, searchTerm],
   );
-  return <section className="admin-module admin-catalog">
+  return <section className="admin-module admin-catalog" aria-label="Catálogo de productos">
     <div className="flex align-items-center justify-content-between flex-wrap gap-2">
-      <div><h2 className="mt-0 mb-1">Catálogo</h2><p className="mt-0 mb-0">Administra productos del catálogo fijo. Las categorías no se editan; el stock se gestiona desde Inventario.</p></div>
+      <div><p className="mt-0 mb-0">Administra productos del catálogo fijo. Las categorías no se editan; el stock se gestiona desde Inventario.</p></div>
     </div>
     {error && <Message severity="error" text={error} />}
-    <TabView>
-      <TabPanel header="Productos">
+    <TabView className="admin-section-tabs">
+      <TabPanel header={<><i className="pi pi-box" aria-hidden="true" /> Productos</>}>
         <section className="flex flex-column gap-3">
           <div className="flex align-items-center justify-content-between flex-wrap gap-2">
             <IconField iconPosition="left" className="admin-catalog__search">
@@ -218,7 +218,7 @@ export function AdminCatalogPage() {
           </div>
         </section>
       </TabPanel>
-      <TabPanel header="Categorías">
+      <TabPanel header={<><i className="pi pi-tags" aria-hidden="true" /> Categorías</>}>
         <section aria-labelledby="categories-heading" className="flex flex-column gap-3">
           <div className="flex align-items-center justify-content-between flex-wrap gap-2">
             <div><h3 id="categories-heading" className="mt-0 mb-1">Categorías</h3><p className="mt-0 mb-0">Catálogo fijo de solo lectura. Las categorías y sus iconos se definen en la aplicación.</p></div>

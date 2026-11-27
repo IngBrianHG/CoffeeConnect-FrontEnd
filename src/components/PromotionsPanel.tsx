@@ -142,7 +142,6 @@ export function PromotionsPanel() {
   return <section className="admin-module promotions-admin">
     <div className="flex justify-content-between align-items-start flex-wrap gap-2">
       <div>
-        <h2 className="mt-0 mb-1">Promociones</h2>
         <p className="mt-0 mb-0">Se administran en Supabase, pero todavía no se aplican a pedidos ni al checkout.</p>
       </div>
       <Button label="Nueva promoción" icon="pi pi-plus" onClick={startCreate} />

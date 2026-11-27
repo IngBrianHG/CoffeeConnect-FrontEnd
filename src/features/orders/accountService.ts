@@ -14,6 +14,7 @@ type Row = Record<string, unknown>;
 
 export interface AccountService {
   getSessionAccount(sessionId: string, signal?: AbortSignal): Promise<SessionAccount>;
+  getServedTotalsBySession(sessionIds: string[], signal?: AbortSignal): Promise<Map<string, number>>;
   recordPayment(
     sessionId: string,
     method: PaymentMethod,
@@ -125,6 +126,53 @@ export function createAccountService(
   }
 
   return {
+    async getServedTotalsBySession(sessionIds, signal) {
+      if (sessionIds.some(id => !UUID.test(id)) || new Set(sessionIds).size !== sessionIds.length) {
+        throw new ApiError(400, 'La lista de sesiones no es válida.', 'VALIDATION_ERROR');
+      }
+      const totals = new Map(sessionIds.map(id => [id, 0]));
+      const seenOrderIds = new Set<string>();
+      const sessionBatchSize = 50;
+
+      for (let batchStart = 0; batchStart < sessionIds.length; batchStart += sessionBatchSize) {
+        const batch = sessionIds.slice(batchStart, batchStart + sessionBatchSize);
+        const batchSessionIds = new Set(batch);
+        let offset = 0;
+        while (true) {
+          const value = await request<unknown>('orders', {
+            method: 'GET',
+            query: {
+              select: 'id,table_session_id,total',
+              table_session_id: `in.(${batch.join(',')})`,
+              status: 'eq.served',
+              order: 'id.asc',
+              limit: String(PAGE_SIZE),
+              offset: String(offset),
+            },
+            signal,
+          });
+          if (!Array.isArray(value)) return invalid('órdenes facturadas');
+          for (const candidate of value) {
+            const row = record(candidate, 'órdenes facturadas');
+            const orderId = uuid(row.id, 'órdenes facturadas') as string;
+            const sessionId = uuid(row.table_session_id, 'órdenes facturadas') as string;
+            const total = numeric(row.total, 'órdenes facturadas');
+            if (!batchSessionIds.has(sessionId) || total < 0 || seenOrderIds.has(orderId)) {
+              return invalid('órdenes facturadas');
+            }
+            seenOrderIds.add(orderId);
+            totals.set(sessionId, (totals.get(sessionId) ?? 0) + total);
+          }
+          if (value.length < PAGE_SIZE) break;
+          offset += value.length;
+        }
+      }
+
+      for (const [sessionId, total] of totals) {
+        totals.set(sessionId, Math.round(total * 100) / 100);
+      }
+      return totals;
+    },
     async getSessionAccount(sessionId, signal) {
       if (!UUID.test(sessionId)) throw new ApiError(400, 'La sesión seleccionada no es válida.', 'VALIDATION_ERROR');
       const sessions = await request<unknown[]>('table_sessions', {
