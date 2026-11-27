@@ -27,25 +27,6 @@
 .inventory-card-heading p { margin: 0; color: var(--inventory-muted); font-size: .9rem; }
 .inventory-card-heading h3 { font-size: var(--text-section); }
 
-.inventory-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: .5rem;
-  min-height: 40px;
-  padding: .55rem .85rem;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  cursor: pointer;
-  font-weight: 700;
-  white-space: nowrap;
-}
-.inventory-button:disabled { cursor: not-allowed; opacity: .55; }
-.inventory-button-primary { background: var(--primary-color, #6f4e37); color: #fff; }
-.inventory-button-primary:hover:not(:disabled) { background: var(--primary-dark, #5d4037); }
-.inventory-button-secondary { background: #fff; border-color: var(--inventory-border); color: #3b4248; }
-.inventory-button-secondary:hover:not(:disabled) { background: #f7f8f8; }
-
 .inventory-tabs { display: flex; gap: .3rem; border-bottom: 1px solid var(--inventory-border); overflow-x: auto; }
 .inventory-tabs button {
   display: inline-flex;
@@ -66,12 +47,7 @@
 .inventory-table-wrap { width: 100%; overflow-x: auto; }
 .inventory-row-actions { display: flex; align-items: center; justify-content: flex-end; gap: .35rem; min-width: 190px; }
 .inventory-unit { color: var(--inventory-muted); font-size: .82rem; }
-.inventory-link,
-.inventory-icon-button { display: inline-flex; align-items: center; justify-content: center; gap: .35rem; color: #495159; border: 1px solid var(--inventory-border); background: #fff; border-radius: 7px; cursor: pointer; }
-.inventory-link { min-height: 34px; padding: .35rem .55rem; font-size: .8rem; font-weight: 700; }
-.inventory-icon-button { width: 34px; height: 34px; }
-.inventory-link:hover,
-.inventory-icon-button:hover { background: #f6f7f7; color: var(--primary-color, #6f4e37); }
+.inventory-remove-button { flex: none; }
 .inventory-state { padding: 1.4rem .5rem; color: var(--inventory-muted); text-align: center; }
 .inventory-field { display: flex; flex-direction: column; gap: .35rem; min-width: 0; }
 .inventory-field > span { color: #4c545b; font-size: .82rem; font-weight: 700; }
@@ -129,8 +105,7 @@
 
 @media (max-width: 639px) {
   .inventory-heading { align-items: flex-start; }
-  .inventory-heading .inventory-button { min-width: 42px; padding-inline: .65rem; font-size: 0; }
-  .inventory-heading .inventory-button svg { flex: none; }
+  .inventory-heading > .p-button { min-height: var(--touch-target); }
   .inventory-card { padding: .9rem; }
   .inventory-card-heading { align-items: flex-start; flex-direction: column; }
   .inventory-product-select { width: 100%; }
@@ -147,7 +122,7 @@
    .inventory-recipe-row .inventory-field:first-child { grid-column: 1 / -1; }
    .inventory-recipe-row .inventory-field:nth-child(2),
    .inventory-recipe-row .inventory-field:nth-child(3) { grid-column: 1; }
-   .inventory-recipe-row .inventory-icon-button { grid-column: 2; grid-row: 2 / span 2; }
+   .inventory-recipe-row .inventory-remove-button { grid-column: 2; grid-row: 2 / span 2; }
   .inventory-form-footer { align-items: flex-end; flex-wrap: wrap; }
   .inventory-form-footer > span { flex-basis: 100%; }
 }

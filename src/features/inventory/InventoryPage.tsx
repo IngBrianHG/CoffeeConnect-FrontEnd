@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, Boxes, ClipboardList, History, PackagePlus, Plus, RefreshCw, Save, X } from 'lucide-react';
+import { AlertTriangle, Boxes, ClipboardList, History, PackagePlus } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from 'primereact/button';
 import { Calendar } from 'primereact/calendar';
@@ -9,6 +9,7 @@ import { Dialog } from 'primereact/dialog';
 import { Dropdown } from 'primereact/dropdown';
 import { InputNumber } from 'primereact/inputnumber';
 import { InputText } from 'primereact/inputtext';
+import { InputSwitch } from 'primereact/inputswitch';
 import { Tag } from 'primereact/tag';
 import { useAuth } from '../../auth/AuthContext';
 import { APP_LOCALE, CALENDAR_DATE_FORMAT } from '../../config/primeReact';
@@ -520,9 +521,7 @@ export function InventoryPage({ onUnsavedChangesChange }: { onUnsavedChangesChan
           <h2 id="inventory-heading">Inventario y recetas</h2>
           <p>Control auditable de ingredientes, preparación y movimientos.</p>
         </div>
-      <button className="inventory-button inventory-button-secondary" type="button" onClick={() => void load()} disabled={loading || refreshing}>
-          <RefreshCw size={16} aria-hidden="true" /> {refreshing ? 'Actualizando…' : 'Actualizar'}
-        </button>
+        <Button type="button" label={refreshing ? 'Actualizando…' : 'Actualizar'} icon="pi pi-refresh" outlined severity="secondary" onClick={() => void load()} disabled={loading || refreshing} />
       </header>
 
       {success && <div className="inventory-success" role="status">{success}</div>}
@@ -550,7 +549,7 @@ export function InventoryPage({ onUnsavedChangesChange }: { onUnsavedChangesChan
         <div className="inventory-card">
           <div className="inventory-card-heading">
             <div><h3>Ingredientes</h3><p>Unidades base: gramos, mililitros y unidades.</p></div>
-            {isAdmin && <button className="inventory-button inventory-button-primary" type="button" onClick={() => setForm({ name: '', unit: 'g', minStock: '0', active: true })}><Plus size={16} /> Nuevo ingrediente</button>}
+            {isAdmin && <Button type="button" label="Nuevo ingrediente" icon="pi pi-plus" onClick={() => setForm({ name: '', unit: 'g', minStock: '0', active: true })} />}
           </div>
           {loading ? <p className="inventory-state" role="status">Cargando ingredientes…</p> : ingredients.length === 0 ? (
             <p className="inventory-state">Todavía no hay ingredientes registrados.</p>
@@ -654,21 +653,21 @@ export function InventoryPage({ onUnsavedChangesChange }: { onUnsavedChangesChan
                       {currentIngredientIsInactive && <small role="alert">Ingrediente inactivo; la receta no se puede volver a guardar hasta sustituirlo.</small>}
                       {ingredient && baseEstimate !== null && <small>Equivale a {formatQuantity(baseEstimate)} {ingredient.unit} (validación final en servidor).</small>}
                     </label>
-                    {isAdmin && <button className="inventory-icon-button" type="button" aria-label="Quitar ingrediente de la receta" onClick={() => {
+                    {isAdmin && <Button className="inventory-remove-button" type="button" icon="pi pi-times" text rounded aria-label="Quitar ingrediente de la receta" onClick={() => {
                       setRecipeRows(rows => rows.filter((_, rowIndex) => rowIndex !== index));
                       setRecipeDirty(true);
-                    }}><X size={18} /></button>}
+                    }} />}
                   </div>;
                 })}
                 {recipeRows.length === 0 && <p className="inventory-state">Este producto no tiene receta. Su stock propio no se administra desde ingredientes.</p>}
               </div>
-              {isAdmin && activeIngredients.length > recipeRows.length && recipeRows.length < 30 && <button className="inventory-button inventory-button-secondary" type="button" onClick={() => {
+              {isAdmin && activeIngredients.length > recipeRows.length && recipeRows.length < 30 && <Button type="button" label="Agregar ingrediente" icon="pi pi-plus" outlined severity="secondary" onClick={() => {
                 setRecipeRows(rows => [...rows, newRecipeRow()]);
                 setRecipeDirty(true);
-              }}><Plus size={16} /> Agregar ingrediente</button>}
+              }} />}
               {isAdmin && <div className="inventory-form-footer">
                 <span>Máximo 30 ingredientes · cantidades con hasta 3 decimales.</span>
-                {recipe.length > 0 && <button className="inventory-button inventory-button-secondary" type="button" disabled={saving} onClick={async () => {
+                {recipe.length > 0 && <Button type="button" label="Eliminar receta" icon="pi pi-trash" outlined severity="danger" disabled={saving} onClick={async () => {
                   if (!window.confirm(`¿Eliminar la receta completa de ${products.find(product => product.id === selectedProductId)?.name ?? 'este producto'}? Los pedidos anteriores no cambiarán.`)) return;
                   setSaving(true);
                   setError('');
@@ -682,8 +681,8 @@ export function InventoryPage({ onUnsavedChangesChange }: { onUnsavedChangesChan
                   } finally {
                     setSaving(false);
                   }
-                }}>Eliminar receta</button>}
-                <button className="inventory-button inventory-button-primary" type="submit" disabled={saving || !recipeDirty}><Save size={16} /> {saving ? 'Guardando…' : 'Guardar receta'}</button>
+                }} />}
+                <Button type="submit" label={saving ? 'Guardando…' : 'Guardar receta'} icon="pi pi-check" disabled={saving || !recipeDirty} />
               </div>}
             </>
           )}
@@ -737,8 +736,8 @@ export function InventoryPage({ onUnsavedChangesChange }: { onUnsavedChangesChan
           <label className="inventory-field"><span>Nombre</span><InputText autoFocus required maxLength={100} value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} /></label>
           <label className="inventory-field"><span>Unidad base</span><Dropdown value={form.unit} disabled={Boolean(form.id)} options={[{ label: 'Gramos (g)', value: 'g' }, { label: 'Mililitros (ml)', value: 'ml' }, { label: 'Unidad (unidad)', value: 'unit' }]} onChange={event => setForm({ ...form, unit: event.value })} /><small>La unidad base no se podrá cambiar cuando existan movimientos o recetas asociados.</small></label>
           <label className="inventory-field"><span>Stock mínimo ({form.unit})</span><InputNumber min={0} minFractionDigits={0} maxFractionDigits={3} value={form.minStock.trim() ? Number(form.minStock) : null} onValueChange={event => setForm({ ...form, minStock: event.value == null ? '' : String(event.value) })} /></label>
-          {form.id && <label className="inventory-checkbox"><input type="checkbox" checked={form.active} onChange={event => setForm({ ...form, active: event.target.checked })} /> Ingrediente activo</label>}
-          <div className="inventory-form-footer"><button type="button" className="inventory-button inventory-button-secondary" onClick={() => setForm(null)}>Cancelar</button><button className="inventory-button inventory-button-primary" disabled={saving}><Save size={16} /> {saving ? 'Guardando…' : 'Guardar'}</button></div>
+          {form.id && <div className="inventory-checkbox"><InputSwitch inputId="ingredient-active" checked={form.active} onChange={event => setForm({ ...form, active: event.value })} /><label htmlFor="ingredient-active">Ingrediente activo</label></div>}
+          <div className="inventory-form-footer"><Button type="button" label="Cancelar" outlined severity="secondary" onClick={() => setForm(null)} /><Button label={saving ? 'Guardando…' : 'Guardar'} icon="pi pi-check" disabled={saving} /></div>
         </form>
       </Dialog>}
 
@@ -753,7 +752,7 @@ export function InventoryPage({ onUnsavedChangesChange }: { onUnsavedChangesChan
             {Object.entries(ingredientConversions[presentationIngredient.id] ?? {}).length > 0 && <ul>
               {Object.entries(ingredientConversions[presentationIngredient.id] ?? {}).map(([unitCode, amount]) => (
                 <li key={unitCode}><span>{measurementUnits.find(unit => unit.code === unitCode)?.name ?? unitCode}: {amount.toLocaleString('es', { maximumFractionDigits: 9 })} {presentationIngredient.unit}</span>
-                  {isAdmin && <button className="inventory-link" type="button" disabled={saving} onClick={async () => {
+                  {isAdmin && <Button className="p-button-sm" label="Quitar" type="button" text severity="danger" disabled={saving} onClick={async () => {
                     setError('');
                     try {
                       await authorized(() => service.deleteIngredientUnitConversion(presentationIngredient.id, unitCode));
@@ -763,28 +762,28 @@ export function InventoryPage({ onUnsavedChangesChange }: { onUnsavedChangesChan
                         return next;
                       });
                     } catch (cause) { setError(messageFor(cause)); }
-                  }}>Quitar</button>}
+                  }} />}
                 </li>
               ))}
             </ul>}
             {isAdmin && (conversionForm ? <form className="inventory-presentation-form" onSubmit={saveConversion}>
               <label className="inventory-field"><span>Unidad no compatible automáticamente</span><Dropdown required value={conversionForm.unitCode} options={measurementUnits.filter(unit => unit.category !== 'purchase' && unit.baseUnit !== presentationIngredient.unit).map(unit => ({ label: `${unit.name} (${unit.abbreviation})`, value: unit.code }))} placeholder="Selecciona unidad" onChange={event => setConversionForm({ ...conversionForm, unitCode: event.value })} /></label>
               <label className="inventory-field"><span>Equivalencia en {presentationIngredient.unit}</span><InputNumber required min={0.000000001} minFractionDigits={0} maxFractionDigits={9} value={conversionForm.quantityInBase ? Number(conversionForm.quantityInBase) : null} onValueChange={event => setConversionForm({ ...conversionForm, quantityInBase: event.value == null ? '' : String(event.value) })} placeholder="Ej. 120" /></label>
-              <div className="inventory-form-footer"><button className="inventory-button inventory-button-secondary" type="button" onClick={() => setConversionForm(null)}>Cancelar</button><button className="inventory-button inventory-button-primary" disabled={saving}>Guardar equivalencia</button></div>
-            </form> : <button className="inventory-button inventory-button-secondary" type="button" onClick={() => setConversionForm({ unitCode: '', quantityInBase: '' })}><Plus size={16} /> Agregar equivalencia</button>)}
+              <div className="inventory-form-footer"><Button label="Cancelar" type="button" outlined severity="secondary" onClick={() => setConversionForm(null)} /><Button label="Guardar equivalencia" icon="pi pi-check" disabled={saving} /></div>
+            </form> : <Button label="Agregar equivalencia" icon="pi pi-plus" type="button" outlined severity="secondary" onClick={() => setConversionForm({ unitCode: '', quantityInBase: '' })} />)}
           </section>
           {presentations.length === 0 ? <p className="inventory-state">No hay presentaciones configuradas.</p> : <div className="inventory-presentation-list">
             {presentations.map(item => <div className="inventory-presentation-item" key={item.id}>
               <div><strong>{item.name}</strong><small>{formatQuantity(item.quantityInBase)} {presentationIngredient.unit} por envase · {measurementUnits.find(unit => unit.code === item.unitCode)?.name ?? item.unitCode}{!item.active && ' · Inactiva'}</small></div>
-              <button className="inventory-link" type="button" onClick={() => setPresentationForm({
+              <Button className="p-button-sm" label="Editar" type="button" text onClick={() => setPresentationForm({
                 id: item.id, name: item.name, unitCode: item.unitCode, quantityInBase: String(item.quantityInBase), active: item.active,
-              })}>Editar</button>
-              <button className="inventory-link" type="button" onClick={async () => {
+              })} />
+              <Button className="p-button-sm" label={item.active ? 'Desactivar' : 'Activar'} type="button" text onClick={async () => {
                 try {
                   await authorized(() => service.updateIngredientPresentation(item.id, { active: !item.active }));
                   setPresentations(await authorized(() => service.listIngredientPresentations(presentationIngredient.id, true)));
                 } catch (cause) { setError(messageFor(cause)); }
-              }}>{item.active ? 'Desactivar' : 'Activar'}</button>
+              }} />
             </div>)}
           </div>}
           {presentationForm ? <form className="inventory-presentation-form" onSubmit={savePresentation}>
@@ -792,10 +791,10 @@ export function InventoryPage({ onUnsavedChangesChange }: { onUnsavedChangesChan
             <label className="inventory-field"><span>Tipo de envase</span><Dropdown required disabled={Boolean(presentationForm.id)} value={presentationForm.unitCode} options={measurementUnits.filter(unit => unit.category === 'purchase').map(unit => ({ label: unit.name, value: unit.code }))} placeholder="Selecciona presentación" onChange={event => setPresentationForm({ ...presentationForm, unitCode: event.value })} /></label>
             <label className="inventory-field"><span>Contenido por envase ({presentationIngredient.unit})</span><InputNumber min={0.001} minFractionDigits={0} maxFractionDigits={3} required value={presentationForm.quantityInBase ? Number(presentationForm.quantityInBase) : null} onValueChange={event => setPresentationForm({ ...presentationForm, quantityInBase: event.value == null ? '' : String(event.value) })} placeholder={presentationIngredient.unit === 'ml' ? 'Ej. 1000' : presentationIngredient.unit === 'g' ? 'Ej. 500' : 'Ej. 12'} /></label>
             <div className="inventory-form-footer">
-              <button type="button" className="inventory-button inventory-button-secondary" onClick={() => setPresentationForm(null)}>Cancelar</button>
-              <button className="inventory-button inventory-button-primary" disabled={saving}><Save size={16} /> Guardar presentación</button>
+              <Button label="Cancelar" type="button" outlined severity="secondary" onClick={() => setPresentationForm(null)} />
+              <Button label="Guardar presentación" icon="pi pi-check" disabled={saving} />
             </div>
-          </form> : <button className="inventory-button inventory-button-secondary" type="button" onClick={() => setPresentationForm({ name: '', unitCode: '', quantityInBase: '', active: true })}><Plus size={16} /> Agregar presentación</button>}
+          </form> : <Button label="Agregar presentación" icon="pi pi-plus" type="button" outlined severity="secondary" onClick={() => setPresentationForm({ name: '', unitCode: '', quantityInBase: '', active: true })} />}
         </section>
       </Dialog>}
 
@@ -824,7 +823,7 @@ export function InventoryPage({ onUnsavedChangesChange }: { onUnsavedChangesChan
           })()}
           <label className="inventory-field"><span>Razón (opcional)</span><InputText maxLength={250} value={adjustment.reason} onChange={event => setAdjustment({ ...adjustment, reason: event.target.value })} placeholder="Ej. Conteo inicial" /></label>
           {retryInput?.ingredientId === adjusting.id && <p className="inventory-retry-hint">Si falló por conexión, reintentar reutilizará la misma clave para evitar duplicados.</p>}
-          <div className="inventory-form-footer"><button type="button" className="inventory-button inventory-button-secondary" onClick={() => setAdjusting(null)}>Cancelar</button><button className="inventory-button inventory-button-primary" disabled={saving}><PackagePlus size={16} /> {saving ? 'Registrando…' : 'Registrar movimiento'}</button></div>
+          <div className="inventory-form-footer"><Button type="button" label="Cancelar" outlined severity="secondary" onClick={() => setAdjusting(null)} /><Button label={saving ? 'Registrando…' : 'Registrar movimiento'} icon="pi pi-check" disabled={saving} /></div>
         </form>
       </Dialog>}
     </section>

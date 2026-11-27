@@ -139,7 +139,7 @@ export function PromotionsPanel() {
     <Button label="Cancelar" severity="secondary" outlined onClick={() => setOpen(false)} disabled={saving} />
     <Button label="Guardar" icon="pi pi-check" onClick={() => void save()} loading={saving} />
   </div>;
-  return <section className="flex flex-column gap-3">
+  return <section className="admin-module promotions-admin">
     <div className="flex justify-content-between align-items-start flex-wrap gap-2">
       <div>
         <h2 className="mt-0 mb-1">Promociones</h2>
@@ -149,17 +149,19 @@ export function PromotionsPanel() {
     </div>
     <Message severity="warn" text="Activar una promoción no cambia los precios del catálogo ni el checkout. La aplicación queda bloqueada hasta contar con cálculo autoritativo en servidor." />
     {error && <Message severity="error" text={error} />}
-    <DataTable value={promotions} dataKey="id" size="small" stripedRows responsiveLayout="scroll" loading={loading} emptyMessage="No hay promociones.">
-      <Column field="name" header="Nombre" />
-      <Column header="Regla" body={(row: AdminPromotion) => row.type === 'nxm' ? `${row.buyQuantity}×${row.payQuantity}` : `${row.percent}%`} />
-      <Column header="Alcance" body={(row: AdminPromotion) => row.scope === 'product' ? products.find(p => p.id === row.productId)?.name ?? 'Producto' : row.scope === 'category' ? categories.find(c => c.id === row.categoryId)?.name ?? 'Categoría' : 'Todo el menú'} />
-      <Column header="Vigencia" body={(row: AdminPromotion) => [row.startsOn, row.endsOn].filter(Boolean).join(' – ') || 'Sin fechas'} />
-      <Column header="Estado" body={(row: AdminPromotion) => <Tag value={row.active ? 'Activa (no aplicada)' : 'Inactiva'} severity={row.active ? 'warning' : 'secondary'} />} />
-      <Column header="Acciones" body={(row: AdminPromotion) => <span className="flex gap-2">
-        <Button icon="pi pi-pencil" aria-label={`Editar ${row.name}`} text onClick={() => startEdit(row)} />
-        {row.active && <Button icon="pi pi-ban" aria-label={`Desactivar ${row.name}`} text onClick={() => void deactivate(row)} />}
-      </span>} />
-    </DataTable>
+    <div className="admin-table-card">
+      <DataTable value={promotions} dataKey="id" size="small" stripedRows responsiveLayout="scroll" loading={loading} emptyMessage="No hay promociones.">
+        <Column field="name" header="Nombre" />
+        <Column header="Regla" body={(row: AdminPromotion) => row.type === 'nxm' ? `${row.buyQuantity}×${row.payQuantity}` : `${row.percent}%`} />
+        <Column header="Alcance" body={(row: AdminPromotion) => row.scope === 'product' ? products.find(p => p.id === row.productId)?.name ?? 'Producto' : row.scope === 'category' ? categories.find(c => c.id === row.categoryId)?.name ?? 'Categoría' : 'Todo el menú'} />
+        <Column header="Vigencia" body={(row: AdminPromotion) => [row.startsOn, row.endsOn].filter(Boolean).join(' – ') || 'Sin fechas'} />
+        <Column header="Estado" body={(row: AdminPromotion) => <Tag value={row.active ? 'Activa (no aplicada)' : 'Inactiva'} severity={row.active ? 'warning' : 'secondary'} />} />
+        <Column header="Acciones" body={(row: AdminPromotion) => <span className="flex gap-2">
+          <Button icon="pi pi-pencil" aria-label={`Editar ${row.name}`} text onClick={() => startEdit(row)} />
+          {row.active && <Button icon="pi pi-ban" aria-label={`Desactivar ${row.name}`} text onClick={() => void deactivate(row)} />}
+        </span>} />
+      </DataTable>
+    </div>
     <Dialog visible={open} header={`${editing ? 'Editar' : 'Nueva'} promoción`} modal onHide={() => !saving && setOpen(false)} footer={footer} className="w-11 md:w-8 lg:w-6" contentStyle={{ maxHeight: '75vh', overflow: 'auto' }}>
       <div className="p-fluid flex flex-column gap-3">
         {error && <Message severity="error" text={error} />}

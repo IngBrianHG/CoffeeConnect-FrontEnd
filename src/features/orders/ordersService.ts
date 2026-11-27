@@ -15,7 +15,7 @@ export interface CafeOrdersService {
   createOrder(tableId: string, items: CreateOrderLine[], idempotencyKey: string): Promise<string>;
   getKioskOrderStatus(idempotencyKey: string, signal?: AbortSignal): Promise<KioskOrderTracking | null>;
   getPublicKioskTableAccount(tableId: string, signal?: AbortSignal): Promise<KioskTableAccount | null>;
-  listOrders(options?: { offset?: number; status?: OrderStatus; tableId?: string; tableSessionId?: string; signal?: AbortSignal }): Promise<CafeOrder[]>;
+  listOrders(options?: { offset?: number; status?: OrderStatus; statusGroup?: 'active' | 'terminal'; tableId?: string; tableSessionId?: string; signal?: AbortSignal }): Promise<CafeOrder[]>;
   listOrderItems(orderIds: string[], signal?: AbortSignal): Promise<CafeOrderItem[]>;
   getOrder(id: string, signal?: AbortSignal): Promise<OrderWithItems>;
   confirmOrder(id: string): Promise<OrderStatus>;
@@ -319,10 +319,16 @@ export function createCafeOrdersService(
         || (options.tableSessionId && !UUID.test(options.tableSessionId))) {
         throw new ApiError(400, 'El filtro de órdenes no es válido.', 'VALIDATION_ERROR');
       }
-      const query: Record<string, string> = { select: ORDER_SELECT, order: 'created_at.desc,id.desc', limit: '200', offset: String(offset) };
+      const query: Record<string, string> = { select: ORDER_SELECT, order: 'created_at.asc,id.asc', limit: '200', offset: String(offset) };
       if (options.status) {
-        if (!ORDER_STATUSES.has(options.status)) throw new ApiError(400, 'El estado no es válido.', 'VALIDATION_ERROR');
+        if (!ORDER_STATUSES.has(options.status) || options.statusGroup) throw new ApiError(400, 'El filtro de estado no es válido.', 'VALIDATION_ERROR');
         query.status = `eq.${options.status}`;
+      } else if (options.statusGroup === 'active') {
+        query.status = 'not.in.(served,cancelled)';
+      } else if (options.statusGroup === 'terminal') {
+        query.status = 'in.(served,cancelled)';
+      } else if (options.statusGroup !== undefined) {
+        throw new ApiError(400, 'El filtro de estado no es válido.', 'VALIDATION_ERROR');
       }
       if (options.tableId) query.table_id = `eq.${options.tableId}`;
       if (options.tableSessionId) query.table_session_id = `eq.${options.tableSessionId}`;

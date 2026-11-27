@@ -232,7 +232,7 @@ export function SessionAccountPage({
     }
   }
 
-  return <div className="flex flex-column gap-3" aria-labelledby="account-heading">
+  return <div className="account-page" aria-labelledby="account-heading">
     <div className="flex align-items-center justify-content-between flex-wrap gap-2">
       <div>
         <h3 id="account-heading" className="mt-0 mb-1">{account?.tableName ?? 'Cuenta de sesión'}</h3>
@@ -246,18 +246,18 @@ export function SessionAccountPage({
     {pending && <Message severity="warn" text="Hay un pago con resultado ambiguo. Reintenta solo con esta clave e importes." />}
     {pendingClose && <Message severity="warn" text="Hay un cierre con resultado ambiguo. Reintenta con la misma selección antes de iniciar otro." />}
     {account && <>
-      <div className="grid">
-        <div className="col-12 md:col-3"><strong>Total servido</strong><div>{currency(account.totalServed)}</div></div>
-        <div className="col-12 md:col-3"><strong>Total pagado</strong><div>{currency(account.totalPaid)}</div></div>
-        <div className="col-12 md:col-3"><strong>Saldo por cobrar</strong><div>{currency(account.balance)}</div></div>
-        <div className="col-12 md:col-3"><strong>Estado</strong><div><Tag
+      <div className="account-metrics">
+        <div className="account-metric"><strong>Total servido</strong><div>{currency(account.totalServed)}</div></div>
+        <div className="account-metric"><strong>Total pagado</strong><div>{currency(account.totalPaid)}</div></div>
+        <div className="account-metric account-metric--balance"><strong>Saldo por cobrar</strong><div>{currency(account.balance)}</div></div>
+        <div className="account-metric"><strong>Estado</strong><div><Tag
           value={account.sessionStatus === 'open' ? 'Sesión abierta' : account.sessionStatus === 'closed' ? 'Sesión cerrada' : 'Sesión cancelada'}
           severity={account.sessionStatus === 'open' ? 'warning' : 'success'} /></div></div>
       </div>
       {activeOrders.length > 0 && <Message severity="warn" text={account.balance > 0
         ? 'Hay órdenes no entregadas y saldo pendiente de órdenes entregadas. Cobra todo lo servido antes de cerrar.'
         : 'El saldo servido está pagado, pero quedan órdenes no entregadas. Para cerrar la mesa debes cancelarlas explícitamente.'} />}
-      {account.orders.map(order => <section className="border-1 border-round p-3" key={order.id}>
+      {account.orders.map(order => <section className="account-order-card" key={order.id}>
         <header className="flex align-items-center justify-content-between flex-wrap gap-2">
           <strong>Orden {order.id.slice(0, 8)} · {new Date(order.createdAt).toLocaleString('es-SV')}</strong>
           <Tag value={order.status === 'served' ? 'Entregada' : order.status === 'cancelled' ? 'Cancelada' : 'No cobrable'}
@@ -286,7 +286,7 @@ export function SessionAccountPage({
             : <Tag value="No cobrable" severity="secondary" />} />
         </DataTable>
       </section>)}
-      {account.payments.length > 0 && <section>
+      {account.payments.length > 0 && <section className="account-history-card">
         <h4 className="mb-2">Pagos recientes</h4>
         <DataTable value={account.payments} dataKey="id" size="small" responsiveLayout="scroll">
           <Column header="Fecha" body={(payment) => new Date(payment.createdAt).toLocaleString('es-SV')} />
@@ -298,7 +298,7 @@ export function SessionAccountPage({
             .map(allocation => `${allocation.orderItemId.slice(0, 8)} · ${currency(allocation.amount)}`).join(' | ')} />
         </DataTable>
       </section>}
-      {canCloseWithCancellations && <section className="border-1 border-round p-3 flex flex-column gap-2">
+      {canCloseWithCancellations && <section className="account-close-card">
         <strong>Cierre de cuenta</strong>
         <p className="m-0">El saldo de lo entregado está pagado. Si continúas, se cancelarán las órdenes no entregadas y se cerrará/liberará esta sesión.</p>
         <div className="flex flex-wrap gap-2">
@@ -311,7 +311,7 @@ export function SessionAccountPage({
             loading={paying} onClick={() => void closeAndCancel(true)} />}
         </div>
       </section>}
-      {canPay && account.sessionStatus === 'open' && <section className="border-1 border-round p-3 flex flex-column gap-3">
+      {canPay && account.sessionStatus === 'open' && <section className="account-payment-card">
         <h4 className="mt-0 mb-0">Registrar pago</h4>
         <div className="flex flex-wrap gap-2">
           <Button label="Cobrar todo lo elegible" outlined severity="secondary" onClick={setAllEligible}
@@ -337,9 +337,12 @@ export function SessionAccountPage({
               onChange={event => setReference(event.target.value)} disabled={paying} />
           </div>
         </div>
-        <strong>Total del pago: {currency(amountTotal)}</strong>
-        <Button label="Confirmar pago" icon="pi pi-check" disabled={allocations.length === 0 || paying}
-          loading={paying} onClick={() => setConfirmVisible(true)} />
+        <div className="account-payment-summary">
+          <div><span>Pago seleccionado</span><strong>{currency(amountTotal)}</strong></div>
+          <div><span>Saldo después del pago</span><strong>{currency(projectedBalance)}</strong></div>
+          <Button label="Continuar" icon="pi pi-arrow-right" iconPos="right" disabled={allocations.length === 0 || paying}
+            loading={paying} onClick={() => setConfirmVisible(true)} />
+        </div>
         {confirmVisible && <div className="border-top-1 pt-3">
           <p className="mt-0">Se cobrarán {allocations.length} línea(s) por {currency(amountTotal)} mediante {METHODS[method]}.</p>
           {projectedBalance === 0 && activeOrders.length === 0 &&
@@ -363,9 +366,9 @@ export function SessionAccountPage({
             disabled={preparedOrders.some(order => !preparedDispositions[order.id])}
             onClick={() => void closeAndCancel()} />
         </div>}>
-        <div className="flex flex-column gap-3">
+        <div className="account-close-review">
           <Message severity="warn" text={`Esta acción cancelará ${activeOrders.length} orden(es), cerrará la sesión y dejará la mesa disponible. El saldo servido debe estar en cero. Esta acción no se puede deshacer.`} />
-          {activeOrders.map(order => <div key={order.id} className="border-1 border-round p-3">
+          {activeOrders.map(order => <div key={order.id} className="account-order-card">
             <strong>Orden {order.id.slice(0, 8)} · {order.status === 'pending' ? 'Pendiente' : order.status === 'confirmed' ? 'Confirmada' : order.status === 'preparing' ? 'Preparando' : 'Lista'}</strong>
             <p className="mt-1 mb-2">{order.items.map(item => `${item.quantity} × ${item.productName}`).join(', ')}</p>
             {order.status === 'confirmed' && <small>Al cancelarla se devolverá a inventario el consumo registrado al confirmar.</small>}

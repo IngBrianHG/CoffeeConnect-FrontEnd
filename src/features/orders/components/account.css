@@ -1,3 +1,101 @@
 .account-payment-dialog {
   width: min(72rem, calc(100vw - 2rem));
 }
+
+.account-page {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.account-page > div:first-child {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.account-page h3,
+.account-page h4 { margin: 0; color: var(--color-text); }
+.account-page > div:first-child p { margin: var(--space-1) 0 0; color: var(--color-text-muted); font-size: var(--text-sm); }
+
+.account-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.account-metric {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+}
+
+.account-metric > strong { color: var(--color-text-muted); font-size: var(--text-xs); font-weight: 650; }
+.account-metric > div { color: var(--color-text); font-size: 1.15rem; font-weight: 750; }
+.account-metric--balance { border-color: rgb(166 106 0 / 24%); background: #fffaf0; }
+.account-metric--balance > div { color: var(--color-warning); }
+
+.account-order-card,
+.account-history-card,
+.account-payment-card,
+.account-close-card {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.account-order-card > header { gap: var(--space-2); }
+.account-order-card .p-datatable,
+.account-history-card .p-datatable { min-width: 0; }
+.account-page .p-datatable .p-datatable-thead > tr > th,
+.account-page .p-datatable .p-datatable-tbody > tr > td { padding: .55rem .65rem; }
+.account-page .p-inputnumber { max-width: 9rem; }
+.account-payment-card > .grid { margin: 0 -.5rem; }
+.account-payment-card .p-dropdown { width: 100%; }
+.account-payment-card label { color: var(--color-text-muted); font-size: var(--text-sm); font-weight: 600; }
+
+.account-payment-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-border);
+}
+
+.account-payment-summary > div { display: grid; gap: 2px; }
+.account-payment-summary span { color: var(--color-text-muted); font-size: var(--text-xs); }
+.account-payment-summary strong { color: var(--color-text); font-size: 1.05rem; }
+.account-payment-summary > div:first-child strong { color: var(--color-brand); font-size: 1.25rem; }
+.account-close-card { border-color: rgb(166 106 0 / 26%); background: #fffaf0; }
+.account-close-card > p { color: var(--color-text-muted); font-size: var(--text-sm); }
+.account-close-review { display: flex; flex-direction: column; gap: var(--space-3); }
+
+@media (max-width: 760px) {
+  .account-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .account-payment-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .account-payment-summary > .p-button { grid-column: 1 / -1; width: 100%; }
+}
+
+@media (max-width: 480px) {
+  .account-metrics { gap: var(--space-2); }
+  .account-metric { padding: var(--space-3); }
+  .account-metric > div { font-size: 1rem; }
+  .account-order-card,
+  .account-history-card,
+  .account-payment-card,
+  .account-close-card { padding: var(--space-3); }
+}

@@ -1,7 +1,7 @@
 import { Suspense, lazy, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Swal from 'sweetalert2';
-import { ClipboardList, Coffee, Package, LogOut, RefreshCw, AlertTriangle, ChefHat, CheckCircle, Bell, Ban, Trash2, CreditCard, Clock, Calendar, DollarSign, Plus, X, Save, ShoppingCart, Minus, Search, BarChart3, Banknote, Smartphone, Hash, Pencil, Users, Gift, MessageSquareText, Boxes, UserRound } from 'lucide-react';
+import { ClipboardList, Coffee, Package, LogOut, RefreshCw, AlertTriangle, ChefHat, CheckCircle, Bell, Ban, Trash2, CreditCard, Clock, Calendar, DollarSign, Plus, X, Save, ShoppingCart, Search, BarChart3, Banknote, Smartphone, Hash, Pencil, Users, Gift, MessageSquareText, Boxes, UserRound } from 'lucide-react';
 import {
   fetchOrders, fetchOrderById, updateOrderStatus,
   createProduct, deleteProduct, updateProduct, fetchReport
@@ -25,6 +25,11 @@ import { catalogService, type PublicMenuItem } from '../services/catalog';
 import { httpClient } from '../services/http/client';
 import { ApiError } from '../services/http/client';
 import type { CreateOrderLine } from '../features/orders/model';
+import { Button } from 'primereact/button';
+import { Calendar as PrimeCalendar } from 'primereact/calendar';
+import { Dropdown } from 'primereact/dropdown';
+import { InputText } from 'primereact/inputtext';
+import { APP_LOCALE, CALENDAR_DATE_FORMAT } from '../config/primeReact';
 
 const InventoryPage = lazy(() => import('../features/inventory/InventoryPage').then(module => ({ default: module.InventoryPage })));
 
@@ -72,6 +77,17 @@ function formatDate(dateStr?: string) {
     day: '2-digit', month: '2-digit', year: 'numeric',
     hour: '2-digit', minute: '2-digit',
   });
+}
+
+function toReportDate(value: string): Date | null {
+  if (!value) return null;
+  const [year, month, day] = value.split('-').map(Number);
+  return new Date(year, month - 1, day);
+}
+
+function fromReportDate(value: Date | null | undefined): string {
+  if (!value) return '';
+  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
 }
 
 const EMPTY_FORM = { name: '', description: '', price: '', image: '', category_id: '' };
@@ -727,22 +743,23 @@ export function OrdersHistory() {
   const flow = STATUS_FLOW[currentStatusKey] ?? STATUS_FLOW['pending'];
 
   return (
-    <div className="admin-layout" style={{ display: 'flex', height: '100vh', overflow: 'hidden', backgroundColor: '#F3F4F6', fontFamily: 'Inter, system-ui, sans-serif' }}>
+    <div className="admin-layout">
 
       {/* SIDEBAR */}
-      <aside className="admin-sidebar" style={{ width: '260px', backgroundColor: '#ffffff', borderRight: '1px solid #E5E7EB', display: 'flex', flexDirection: 'column', padding: '1.5rem', zIndex: 10 }}>
-        <div className="sidebar-header" style={{ display: 'flex', alignItems: 'center', gap: '0.85rem', marginBottom: '2.5rem' }}>
-          <img src="/turron-logo.jpg" alt="Logo TURRÓN" style={{ width: '50px', height: '50px', borderRadius: '50%', objectFit: 'cover', border: '2px solid #E0247D' }} />
+      <aside className="admin-sidebar">
+        <div className="sidebar-header">
+          <img src="/turron-logo.jpg" alt="Logo TURRÓN" />
           <div>
             <h2 style={{ fontSize: '1.25rem', color: '#111827', margin: 0, fontWeight: '800', lineHeight: 1.1 }}>TURRÓN</h2>
             <span style={{ fontSize: '0.75rem', color: '#E0247D', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '1.5px' }}>Pastelería</span>
           </div>
         </div>
 
-        <nav className="sidebar-nav" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', flex: 1 }}>
+        <nav className="sidebar-nav" aria-label="Navegación administrativa">
           {userRole === 'admin' && (
             <button
               onClick={() => navigateTab('orders')}
+              aria-current={activeTab === 'orders' ? 'page' : undefined}
               style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.85rem 1rem', borderRadius: '8px', border: 'none', background: activeTab === 'orders' ? '#FDF2F8' : 'transparent', color: activeTab === 'orders' ? '#E0247D' : '#4B5563', fontWeight: activeTab === 'orders' ? '600' : '500', cursor: 'pointer', transition: 'all 0.2s ease', textAlign: 'left', fontSize: '1rem' }}
               onMouseEnter={(e) => { if (activeTab !== 'orders') e.currentTarget.style.backgroundColor = '#F9FAFB'; }}
               onMouseLeave={(e) => { if (activeTab !== 'orders') e.currentTarget.style.backgroundColor = 'transparent'; }}
@@ -752,6 +769,7 @@ export function OrdersHistory() {
           )}
           <button
             onClick={() => navigateTab('mesas')}
+            aria-current={activeTab === 'mesas' ? 'page' : undefined}
             style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.85rem 1rem', borderRadius: '8px', border: 'none', background: activeTab === 'mesas' ? '#FDF2F8' : 'transparent', color: activeTab === 'mesas' ? '#E0247D' : '#4B5563', fontWeight: activeTab === 'mesas' ? '600' : '500', cursor: 'pointer', transition: 'all 0.2s ease', textAlign: 'left', fontSize: '1rem' }}
             onMouseEnter={(e) => { if (activeTab !== 'mesas') e.currentTarget.style.backgroundColor = '#F9FAFB'; }}
             onMouseLeave={(e) => { if (activeTab !== 'mesas') e.currentTarget.style.backgroundColor = 'transparent'; }}
@@ -761,6 +779,7 @@ export function OrdersHistory() {
           {userRole === 'admin' && (
             <button
               onClick={() => navigateTab('products')}
+              aria-current={activeTab === 'products' ? 'page' : undefined}
               style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.85rem 1rem', borderRadius: '8px', border: 'none', background: activeTab === 'products' ? '#FDF2F8' : 'transparent', color: activeTab === 'products' ? '#E0247D' : '#4B5563', fontWeight: activeTab === 'products' ? '600' : '500', cursor: 'pointer', transition: 'all 0.2s ease', textAlign: 'left', fontSize: '1rem' }}
               onMouseEnter={(e) => { if (activeTab !== 'products') e.currentTarget.style.backgroundColor = '#F9FAFB'; }}
               onMouseLeave={(e) => { if (activeTab !== 'products') e.currentTarget.style.backgroundColor = 'transparent'; }}
@@ -771,6 +790,7 @@ export function OrdersHistory() {
           {userRole === 'admin' && (
             <button
               onClick={() => navigateTab('promos')}
+              aria-current={activeTab === 'promos' ? 'page' : undefined}
               style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.85rem 1rem', borderRadius: '8px', border: 'none', background: activeTab === 'promos' ? '#FDF2F8' : 'transparent', color: activeTab === 'promos' ? '#E0247D' : '#4B5563', fontWeight: activeTab === 'promos' ? '600' : '500', cursor: 'pointer', transition: 'all 0.2s ease', textAlign: 'left', fontSize: '1rem' }}
               onMouseEnter={(e) => { if (activeTab !== 'promos') e.currentTarget.style.backgroundColor = '#F9FAFB'; }}
               onMouseLeave={(e) => { if (activeTab !== 'promos') e.currentTarget.style.backgroundColor = 'transparent'; }}
@@ -780,6 +800,7 @@ export function OrdersHistory() {
           )}
           <button
             onClick={() => navigateTab('inventory')}
+            aria-current={activeTab === 'inventory' ? 'page' : undefined}
             style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.85rem 1rem', borderRadius: '8px', border: 'none', background: activeTab === 'inventory' ? '#FDF2F8' : 'transparent', color: activeTab === 'inventory' ? '#E0247D' : '#4B5563', fontWeight: activeTab === 'inventory' ? '600' : '500', cursor: 'pointer', transition: 'all 0.2s ease', textAlign: 'left', fontSize: '1rem' }}
             onMouseEnter={(e) => { if (activeTab !== 'inventory') e.currentTarget.style.backgroundColor = '#F9FAFB'; }}
             onMouseLeave={(e) => { if (activeTab !== 'inventory') e.currentTarget.style.backgroundColor = 'transparent'; }}
@@ -788,6 +809,7 @@ export function OrdersHistory() {
           </button>
           <button
             onClick={() => navigateTab('pos')}
+            aria-current={activeTab === 'pos' ? 'page' : undefined}
             style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.85rem 1rem', borderRadius: '8px', border: 'none', background: activeTab === 'pos' ? '#FDF2F8' : 'transparent', color: activeTab === 'pos' ? '#E0247D' : '#4B5563', fontWeight: activeTab === 'pos' ? '600' : '500', cursor: 'pointer', transition: 'all 0.2s ease', textAlign: 'left', fontSize: '1rem' }}
             onMouseEnter={(e) => { if (activeTab !== 'pos') e.currentTarget.style.backgroundColor = '#F9FAFB'; }}
             onMouseLeave={(e) => { if (activeTab !== 'pos') e.currentTarget.style.backgroundColor = 'transparent'; }}
@@ -797,6 +819,7 @@ export function OrdersHistory() {
           {userRole === 'admin' && (
             <button
               onClick={() => navigateTab('reports')}
+              aria-current={activeTab === 'reports' ? 'page' : undefined}
               style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.85rem 1rem', borderRadius: '8px', border: 'none', background: activeTab === 'reports' ? '#FDF2F8' : 'transparent', color: activeTab === 'reports' ? '#E0247D' : '#4B5563', fontWeight: activeTab === 'reports' ? '600' : '500', cursor: 'pointer', transition: 'all 0.2s ease', textAlign: 'left', fontSize: '1rem' }}
               onMouseEnter={(e) => { if (activeTab !== 'reports') e.currentTarget.style.backgroundColor = '#F9FAFB'; }}
               onMouseLeave={(e) => { if (activeTab !== 'reports') e.currentTarget.style.backgroundColor = 'transparent'; }}
@@ -807,6 +830,7 @@ export function OrdersHistory() {
           {userRole === 'admin' && (
             <button
               onClick={() => navigateTab('users')}
+              aria-current={activeTab === 'users' ? 'page' : undefined}
               style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.85rem 1rem', borderRadius: '8px', border: 'none', background: activeTab === 'users' ? '#FDF2F8' : 'transparent', color: activeTab === 'users' ? '#E0247D' : '#4B5563', fontWeight: activeTab === 'users' ? '600' : '500', cursor: 'pointer', transition: 'all 0.2s ease', textAlign: 'left', fontSize: '1rem' }}
               onMouseEnter={(e) => { if (activeTab !== 'users') e.currentTarget.style.backgroundColor = '#F9FAFB'; }}
               onMouseLeave={(e) => { if (activeTab !== 'users') e.currentTarget.style.backgroundColor = 'transparent'; }}
@@ -816,13 +840,14 @@ export function OrdersHistory() {
           )}
           <button
             onClick={() => navigateTab('profile')}
+            aria-current={activeTab === 'profile' ? 'page' : undefined}
             style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.85rem 1rem', borderRadius: '8px', border: 'none', background: activeTab === 'profile' ? '#FDF2F8' : 'transparent', color: activeTab === 'profile' ? '#E0247D' : '#4B5563', fontWeight: activeTab === 'profile' ? '600' : '500', cursor: 'pointer', transition: 'all 0.2s ease', textAlign: 'left', fontSize: '1rem' }}
           >
             <UserRound size={20} /> Mi perfil
           </button>
         </nav>
 
-        <div className="sidebar-footer" style={{ borderTop: '1px solid #E5E7EB', paddingTop: '1.5rem', marginTop: 'auto' }}>
+        <div className="sidebar-footer">
           <button
             onClick={handleLogout}
             style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.85rem 1rem', borderRadius: '8px', border: 'none', background: 'transparent', color: '#DC2626', fontWeight: '500', cursor: 'pointer', transition: 'all 0.2s ease', width: '100%', textAlign: 'left', fontSize: '1rem' }}
@@ -835,8 +860,8 @@ export function OrdersHistory() {
       </aside>
 
       {/* MAIN CONTENT */}
-      <main className="admin-main" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        <header className="admin-topbar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1.5rem 2.5rem', backgroundColor: '#ffffff', borderBottom: '1px solid #E5E7EB', zIndex: 5 }}>
+      <main className="admin-main">
+        <header className="admin-topbar">
           <h1 style={{ fontSize: '1.5rem', color: '#111827', margin: 0, fontWeight: '700' }}>
             {activeTab === 'orders' ? 'Gestión de Pedidos' : activeTab === 'mesas' ? 'Mesas y Sesiones' : activeTab === 'products' ? 'Catálogo de Productos' : activeTab === 'pos' ? 'Punto de Venta' : activeTab === 'users' ? 'Gestión de Usuarios' : activeTab === 'promos' ? 'Promociones y Ofertas' : activeTab === 'inventory' ? 'Inventario de Ingredientes' : activeTab === 'profile' ? 'Mi perfil' : 'Reportes'}
           </h1>
@@ -870,7 +895,7 @@ export function OrdersHistory() {
           </div>
         </header>
 
-        <div className="admin-content" style={{ flex: 1, overflowY: 'auto', padding: '2.5rem' }}>
+        <div className="admin-content">
 
           {activeTab === 'profile' && session && (
             <section aria-labelledby="profile-title" style={{ maxWidth: '640px', background: '#fff', border: '1px solid #E5E7EB', borderRadius: '12px', padding: '2rem', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
@@ -1189,29 +1214,23 @@ export function OrdersHistory() {
 
           {/* ══ TAB PUNTO DE VENTA ══ */}
           {activeTab === 'pos' && (
-            <div style={{ display: 'flex', gap: '1.5rem', height: '100%' }}>
+            <div className="admin-pos">
               {/* IZQUIERDA: Catálogo */}
-              <div style={{ flex: 2, display: 'flex', flexDirection: 'column', gap: '1rem', overflow: 'hidden' }}>
+              <div className="pos-catalog">
                 {/* Selector de Mesa */}
-                <div style={{ background: '#fff', padding: '1rem 1.25rem', borderRadius: '10px', border: '1px solid #E5E7EB', display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                <div className="pos-table-picker" style={{ background: '#fff', padding: '1rem 1.25rem', borderRadius: '10px', border: '1px solid #E5E7EB', display: 'flex', alignItems: 'center', gap: '1rem' }}>
                   <Coffee size={20} color="#E0247D" />
                   <label htmlFor="pos-table-select" className="sr-only">Mesa o tipo de pedido</label>
-                  <select
-                    id="pos-table-select"
-                    value={posSelectedMesaId}
-                    onChange={e => { setPosSelectedMesaId(e.target.value); setPosStockMessage(null); }}
-                    disabled={Boolean(pendingPosOrder) || posIsProcessing}
-                    style={{ flex: 1, padding: '0.6rem 0.75rem', borderRadius: '8px', border: '1px solid #D1D5DB', fontSize: '0.95rem', color: '#111827', fontWeight: '500' }}
-                  >
-                    <option value="">— Seleccionar Mesa —</option>
-                    {mesas.map(m => (
-                      <option key={m.id} value={m.id}>
-                        {m.name.trim().toLocaleLowerCase('es-SV') === 'para llevar'
-                          ? 'Para llevar'
-                          : `${m.name} (${m.status === 'OCUPADA' ? 'sesión abierta' : 'disponible'})`}
-                      </option>
-                    ))}
-                  </select>
+                  <Dropdown inputId="pos-table-select" value={posSelectedMesaId}
+                    options={[{ label: 'Seleccionar mesa', value: '' }, ...mesas.map(m => ({
+                      label: m.name.trim().toLocaleLowerCase('es-SV') === 'para llevar'
+                        ? 'Para llevar'
+                        : `${m.name} (${m.status === 'OCUPADA' ? 'sesión abierta' : 'disponible'})`,
+                      value: m.id,
+                    }))]}
+                    optionLabel="label" optionValue="value" className="w-full"
+                    onChange={event => { setPosSelectedMesaId(event.value); setPosStockMessage(null); }}
+                    disabled={Boolean(pendingPosOrder) || posIsProcessing} />
                 </div>
                 {posTableError && <div role="status" style={{ color: '#9A6700', background: '#FFF8C5', padding: '0.75rem 1rem', borderRadius: '8px' }}>
                   {posTableError} <button type="button" onClick={() => void loadMesas()}>Actualizar mesas</button>
@@ -1226,44 +1245,33 @@ export function OrdersHistory() {
 
                 {/* Búsqueda y Filtros */}
                 <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
-                  <div style={{ position: 'relative', flex: 1 }}>
+                  <div className="pos-searchbox" style={{ position: 'relative', flex: 1 }}>
                     <Search size={18} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: '#9CA3AF' }} />
-                    <input
-                      type="text"
-                      placeholder="Buscar producto..."
-                      value={posSearchTerm}
-                      onChange={e => setPosSearchTerm(e.target.value)}
-                      style={{ width: '100%', padding: '0.6rem 0.75rem 0.6rem 2.5rem', borderRadius: '8px', border: '1px solid #D1D5DB', fontSize: '0.95rem', outline: 'none' }}
-                    />
+                    <InputText type="search" placeholder="Buscar producto..." value={posSearchTerm}
+                      onChange={e => setPosSearchTerm(e.target.value)} className="w-full" aria-label="Buscar producto" />
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                  <button
-                    onClick={() => setPosSelectedCategory(null)}
-                    style={{ padding: '0.4rem 0.9rem', borderRadius: '20px', border: 'none', background: posSelectedCategory === null ? '#E0247D' : '#F3F4F6', color: posSelectedCategory === null ? '#fff' : '#4B5563', fontWeight: '600', cursor: 'pointer', fontSize: '0.85rem', transition: 'all 0.2s' }}
-                  >Todas</button>
+                  <Button label="Todas" size="small" outlined={posSelectedCategory !== null}
+                    className={posSelectedCategory === null ? 'is-selected' : ''} onClick={() => setPosSelectedCategory(null)} />
                   {categories.map(cat => (
-                    <button
-                      key={cat.id}
-                      onClick={() => setPosSelectedCategory(String(cat.id))}
-                      style={{ padding: '0.4rem 0.9rem', borderRadius: '20px', border: 'none', background: posSelectedCategory === String(cat.id) ? '#E0247D' : '#F3F4F6', color: posSelectedCategory === String(cat.id) ? '#fff' : '#4B5563', fontWeight: '600', cursor: 'pointer', fontSize: '0.85rem', transition: 'all 0.2s' }}
-                    >{cat.name}</button>
+                    <Button key={cat.id} label={cat.name} size="small" outlined={posSelectedCategory !== String(cat.id)}
+                      className={posSelectedCategory === String(cat.id) ? 'is-selected' : ''}
+                      onClick={() => setPosSelectedCategory(String(cat.id))} />
                   ))}
                 </div>
 
                 {/* Grid de Productos */}
-                <div style={{ flex: 1, overflowY: 'auto', paddingRight: '0.5rem' }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem' }}>
+                <div className="pos-product-list">
+                  <div className="pos-product-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem' }}>
                     {posFilteredProducts.map(product => (
-                      <button
+                      <Button
+                        className="pos-product-card"
                         type="button"
                         key={product.id}
                         onClick={() => posAddToCart(product)}
                         disabled={loadingProducts || Boolean(posAvailabilityError) || !Number.isInteger(product.stock) || product.stock === 0}
                         aria-label={`Agregar ${product.name} al pedido`}
-                        style={{ display: 'flex', flexDirection: 'column', textAlign: 'left', borderRadius: '10px', overflow: 'hidden', background: '#fff', border: '1px solid #E5E7EB', cursor: product.stock === undefined || product.stock === 0 || posAvailabilityError ? 'not-allowed' : 'pointer', opacity: product.stock === undefined || product.stock === 0 || posAvailabilityError ? 0.55 : 1, transition: 'all 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}
-                        onMouseEnter={e => { if (product.stock !== undefined && product.stock > 0 && !posAvailabilityError) { e.currentTarget.style.borderColor = '#E0247D'; e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 4px 12px rgba(224,36,125,0.15)'; } }}
-                        onMouseLeave={e => { e.currentTarget.style.borderColor = '#E5E7EB'; e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.06)'; }}
                       >
                         <img
                           src={product.image && product.image.trim() !== '' ? product.image : getProductImage(product.name)}
@@ -1271,9 +1279,9 @@ export function OrdersHistory() {
                           style={{ width: '100%', height: '120px', objectFit: 'cover' }}
                           onError={e => { (e.target as HTMLImageElement).src = getProductImage(product.name); }}
                         />
-                        <div style={{ padding: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                        <div className="pos-product-card__body">
                           <strong style={{ fontSize: '0.9rem', color: '#111827' }}>{product.name}</strong>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.25rem' }}>
+                          <div className="pos-product-card__price">
                             <span style={{ fontWeight: '700', color: '#E0247D', fontSize: '1rem' }}>${Number(product.price).toFixed(2)}</span>
                             {(
                               <span style={{ fontSize: '0.75rem', color: product.stock === 0 ? '#EF4444' : '#6B7280' }}>
@@ -1282,7 +1290,7 @@ export function OrdersHistory() {
                             )}
                           </div>
                         </div>
-                      </button>
+                      </Button>
                     ))}
                   </div>
                   {posFilteredProducts.length === 0 && (
@@ -1295,15 +1303,15 @@ export function OrdersHistory() {
               </div>
 
               {/* DERECHA: Carrito */}
-              <div style={{ width: '340px', flexShrink: 0, background: '#fff', borderRadius: '12px', border: '1px solid #E5E7EB', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-                <div style={{ padding: '1.25rem', borderBottom: '1px solid #E5E7EB', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div className="pos-cart-panel">
+                <div className="pos-cart-header">
                   <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: '700', color: '#111827', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                     <ShoppingCart size={20} color="#E0247D" /> Carrito
                   </h3>
                   <span style={{ background: '#FDF2F8', color: '#E0247D', padding: '0.2rem 0.75rem', borderRadius: '20px', fontWeight: '700', fontSize: '0.85rem' }}>{posItemCount}</span>
                 </div>
 
-                <div style={{ flex: 1, overflowY: 'auto', padding: '1rem' }}>
+                <div className="pos-cart-content" style={{ flex: 1, overflowY: 'auto', padding: '1rem' }}>
                   {posCart.length === 0 ? (
                     <div style={{ textAlign: 'center', padding: '3rem 1rem', color: '#9CA3AF' }}>
                       <ShoppingCart size={48} style={{ marginBottom: '1rem', opacity: 0.3 }} />
@@ -1316,35 +1324,35 @@ export function OrdersHistory() {
                         const line = posPricing.lines[item.lineId];
                         const hasDiscount = !!line && line.discount > 0;
                         return (
-                          <div key={item.lineId} style={{ padding: '0.75rem', background: '#F9FAFB', borderRadius: '8px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                              <div style={{ flex: 1, minWidth: 0 }}>
-                                <p style={{ margin: 0, fontWeight: '600', fontSize: '0.9rem', color: '#111827', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.product.name}</p>
-                                <p style={{ margin: '0.15rem 0 0', fontSize: '0.8rem', color: '#6B7280' }}>${item.product.price.toFixed(2)} c/u</p>
+                          <div key={item.lineId} className="pos-cart-item">
+                            <div className="pos-cart-line">
+                              <div className="pos-cart-item__product">
+                                <p>{item.product.name}</p>
+                                <small>${item.product.price.toFixed(2)} c/u</small>
                               </div>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                                <button onClick={() => posDecreaseQty(item.lineId)} disabled={item.quantity <= 1} style={{ width: '28px', height: '28px', borderRadius: '50%', border: '1px solid #D1D5DB', background: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#374151' }}><Minus size={14} /></button>
-                                <span style={{ minWidth: '24px', textAlign: 'center', fontWeight: '700', fontSize: '0.9rem' }}>{item.quantity}</span>
-                                <button onClick={() => posIncreaseQty(item.lineId)} style={{ width: '28px', height: '28px', borderRadius: '50%', border: '1px solid #D1D5DB', background: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#374151' }}><Plus size={14} /></button>
+                              <div className="pos-cart-item__quantity">
+                                <Button icon="pi pi-minus" text rounded size="small" aria-label={`Quitar una unidad de ${item.product.name}`} onClick={() => posDecreaseQty(item.lineId)} disabled={item.quantity <= 1} />
+                                <span>{item.quantity}</span>
+                                <Button icon="pi pi-plus" text rounded size="small" aria-label={`Agregar una unidad de ${item.product.name}`} onClick={() => posIncreaseQty(item.lineId)} />
                               </div>
-                              <strong style={{ fontSize: '0.9rem', color: '#111827', minWidth: '55px', textAlign: 'right' }}>
+                              <strong className="pos-cart-item__subtotal">
                                 {hasDiscount && <s style={{ display: 'block', fontSize: '0.75rem', color: '#9CA3AF', fontWeight: '500' }}>${item.subtotal.toFixed(2)}</s>}
                                 ${(line ? line.net : item.subtotal).toFixed(2)}
                               </strong>
-                              <button onClick={() => posRemoveFromCart(item.lineId)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#EF4444', padding: '0.2rem' }}><Trash2 size={16} /></button>
+                              <Button className="pos-cart-item__remove" icon="pi pi-trash" text rounded severity="danger" aria-label={`Quitar ${item.product.name} del pedido`} onClick={() => posRemoveFromCart(item.lineId)} />
                             </div>
                             {hasDiscount && (
                               <div style={{ marginTop: '0.4rem', fontSize: '0.78rem', color: '#059669', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
                                 <Gift size={13} /> {line.promoNames.join(', ')}
                               </div>
                             )}
-                            <input
+                            <InputText
                               type="text"
                               value={item.notes ?? ''}
                               maxLength={MAX_NOTE_LENGTH}
                               onChange={e => posUpdateNotes(item.lineId, e.target.value)}
                               placeholder="Comentario (ej: con 2 cucharadas de azúcar)"
-                              style={{ width: '100%', marginTop: '0.5rem', padding: '0.4rem 0.6rem', borderRadius: '6px', border: '1px dashed #D1D5DB', background: '#fff', fontSize: '0.8rem', color: '#374151', outline: 'none', boxSizing: 'border-box' }}
+                              className="w-full mt-2"
                             />
                           </div>
                         );
@@ -1369,24 +1377,21 @@ export function OrdersHistory() {
                       <span style={{ fontWeight: '600', color: '#4B5563' }}>Estimado (sin promociones):</span>
                       <strong style={{ fontSize: '1.5rem', color: '#10B981' }}>${posTotal.toFixed(2)}</strong>
                     </div>
-                    <button
+                    <Button
                       onClick={() => posConfirmOrder()}
                       disabled={posIsProcessing || Boolean(pendingPosOrder) || loadingProducts || !posSelectedMesaId || Boolean(posAvailabilityError)}
-                      style={{ width: '100%', padding: '0.85rem', background: !posSelectedMesaId || posAvailabilityError ? '#9CA3AF' : '#10B981', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: '700', fontSize: '1rem', cursor: !posSelectedMesaId || posAvailabilityError ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', transition: 'background 0.2s' }}
+                      className="w-full"
+                      severity="success"
+                      icon={posIsProcessing ? 'pi pi-spin pi-spinner' : 'pi pi-check'}
+                      label={posIsProcessing ? 'Procesando…' : loadingProducts ? 'Validando productos…' : posAvailabilityError ? 'Actualiza disponibilidad' : !posSelectedMesaId ? 'Selecciona una mesa' : 'Confirmar pedido'}
                     >
-                      {posIsProcessing ? <><RefreshCw size={18} className="spin-icon" /> Procesando...</>
-                        : loadingProducts ? 'Validando productos...'
-                          : posAvailabilityError ? 'Actualiza disponibilidad'
-                            : !posSelectedMesaId ? 'Selecciona una mesa' : <><CheckCircle size={18} /> Confirmar Pedido</>}
-                    </button>
+                    </Button>
                   </div>
                 )}
                 {pendingPosOrder && <div role="status" className="flex flex-column gap-2" style={{ padding: '1rem', borderTop: '1px solid #E5E7EB' }}>
                   <p style={{ margin: 0 }}>Hay un envío sin resultado confirmado. Conservamos la misma clave y el mismo carrito; reintenta sin modificar la intención.</p>
-                  <button type="button" onClick={() => posConfirmOrder(true)} disabled={posIsProcessing}
-                    style={{ width: '100%', minHeight: '44px' }}>
-                    {posIsProcessing ? 'Consultando resultado…' : 'Reintentar envío pendiente'}
-                  </button>
+                  <Button type="button" label={posIsProcessing ? 'Consultando resultado…' : 'Reintentar envío pendiente'}
+                    icon="pi pi-refresh" outlined className="w-full" onClick={() => posConfirmOrder(true)} disabled={posIsProcessing} />
                 </div>}
               </div>
             </div>
@@ -1398,45 +1403,34 @@ export function OrdersHistory() {
 
           {/* ══ TAB REPORTES ══ */}
           {activeTab === 'reports' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', height: '100%' }}>
+            <div className="admin-reports" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', height: '100%' }}>
               {/* Filtro de Fechas */}
-              <div style={{ background: '#fff', padding: '1.25rem', borderRadius: '10px', border: '1px solid #E5E7EB', display: 'flex', alignItems: 'flex-end', gap: '1rem', flexWrap: 'wrap' }}>
+              <div className="reports-filters" style={{ background: '#fff', padding: '1.25rem', borderRadius: '10px', border: '1px solid #E5E7EB', display: 'flex', alignItems: 'flex-end', gap: '1rem', flexWrap: 'wrap' }}>
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '600', color: '#6B7280', marginBottom: '0.35rem' }}>Tipo de filtro</label>
-                  <select
-                    value={reportFilterType}
-                    onChange={e => setReportFilterType(e.target.value as 'day' | 'range')}
-                    style={{ padding: '0.55rem 0.75rem', borderRadius: '8px', border: '1px solid #D1D5DB', fontSize: '0.9rem', fontWeight: '500' }}
-                  >
-                    <option value="day">Por día</option>
-                    <option value="range">Rango de fechas</option>
-                  </select>
+                  <label htmlFor="report-filter-type" style={{ display: 'block', fontSize: '0.8rem', fontWeight: '600', color: '#6B7280', marginBottom: '0.35rem' }}>Tipo de filtro</label>
+                  <Dropdown inputId="report-filter-type" value={reportFilterType} options={[{ label: 'Por día', value: 'day' }, { label: 'Rango de fechas', value: 'range' }]}
+                    onChange={event => setReportFilterType(event.value)} />
                 </div>
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '600', color: '#6B7280', marginBottom: '0.35rem' }}>{reportFilterType === 'day' ? 'Fecha' : 'Desde'}</label>
-                  <input type="date" value={reportDateFrom} onChange={e => setReportDateFrom(e.target.value)} style={{ padding: '0.55rem 0.75rem', borderRadius: '8px', border: '1px solid #D1D5DB', fontSize: '0.9rem' }} />
+                  <label htmlFor="report-date-from" style={{ display: 'block', fontSize: '0.8rem', fontWeight: '600', color: '#6B7280', marginBottom: '0.35rem' }}>{reportFilterType === 'day' ? 'Fecha' : 'Desde'}</label>
+                  <PrimeCalendar inputId="report-date-from" value={toReportDate(reportDateFrom)} onChange={event => setReportDateFrom(fromReportDate(event.value as Date | null))}
+                    dateFormat={CALENDAR_DATE_FORMAT} locale={APP_LOCALE} showIcon />
                 </div>
                 {reportFilterType === 'range' && (
                   <div>
-                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '600', color: '#6B7280', marginBottom: '0.35rem' }}>Hasta</label>
-                    <input type="date" value={reportDateTo} onChange={e => setReportDateTo(e.target.value)} style={{ padding: '0.55rem 0.75rem', borderRadius: '8px', border: '1px solid #D1D5DB', fontSize: '0.9rem' }} />
+                    <label htmlFor="report-date-to" style={{ display: 'block', fontSize: '0.8rem', fontWeight: '600', color: '#6B7280', marginBottom: '0.35rem' }}>Hasta</label>
+                    <PrimeCalendar inputId="report-date-to" value={toReportDate(reportDateTo)} onChange={event => setReportDateTo(fromReportDate(event.value as Date | null))}
+                      dateFormat={CALENDAR_DATE_FORMAT} locale={APP_LOCALE} showIcon minDate={toReportDate(reportDateFrom) ?? undefined} />
                   </div>
                 )}
-                <button
-                  onClick={loadReport}
-                  disabled={reportLoading}
-                  style={{ padding: '0.55rem 1.5rem', borderRadius: '8px', border: 'none', background: '#E0247D', color: '#fff', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.9rem', transition: 'background 0.2s' }}
-                  onMouseEnter={e => e.currentTarget.style.backgroundColor = '#C2185B'}
-                  onMouseLeave={e => e.currentTarget.style.backgroundColor = '#E0247D'}
-                >
-                  {reportLoading ? <><RefreshCw size={16} className="spin-icon" /> Cargando...</> : <><Search size={16} /> Generar Reporte</>}
-                </button>
+                <Button label={reportLoading ? 'Cargando…' : 'Generar reporte'} icon="pi pi-search"
+                  onClick={() => void loadReport()} disabled={reportLoading} loading={reportLoading} />
               </div>
 
               {reportData ? (
                 <>
                   {/* KPI Cards */}
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem' }}>
+                  <div className="reports-metrics" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem' }}>
                     {/* Total */}
                     <div style={{ background: '#fff', padding: '1.5rem', borderRadius: '10px', border: '1px solid #E5E7EB', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#6B7280', fontSize: '0.85rem', fontWeight: '600' }}><DollarSign size={18} color="#10B981" /> Ingresos Totales</div>

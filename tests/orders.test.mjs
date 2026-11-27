@@ -163,8 +163,14 @@ test('uses paginated filtered order queries and never reads for anonymous caller
   assert.deepEqual(await api.listOrders({ offset: 200, status: 'ready', tableId }), []);
   assert.equal(calls[0].options.query.limit, '200');
   assert.equal(calls[0].options.query.offset, '200');
+  assert.equal(calls[0].options.query.order, 'created_at.asc,id.asc');
   assert.equal(calls[0].options.query.status, 'eq.ready');
+  assert.deepEqual(await api.listOrders({ statusGroup: 'active' }), []);
+  assert.equal(calls[1].options.query.status, 'not.in.(served,cancelled)');
+  assert.deepEqual(await api.listOrders({ statusGroup: 'terminal' }), []);
+  assert.equal(calls[2].options.query.status, 'in.(served,cancelled)');
   assert.equal(calls[0].options.accessToken, undefined);
+  await assert.rejects(api.listOrders({ status: 'ready', statusGroup: 'active' }), { code: 'VALIDATION_ERROR' });
   await assert.rejects(api.listOrderItems([tableId, 'bad']), { code: 'VALIDATION_ERROR' });
 });
 

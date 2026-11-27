@@ -232,7 +232,7 @@ export function TablesSessionsPage() {
     unavailable: 'No disponible',
   } satisfies Record<CafeTable['status'], string>;
 
-  return <section className="flex flex-column gap-3" aria-labelledby="tables-heading">
+  return <section className="admin-module tables-admin" aria-labelledby="tables-heading">
     <div className="flex align-items-center justify-content-between flex-wrap gap-2">
       <div>
         <h2 id="tables-heading" className="mt-0 mb-1">Mesas y sesiones</h2>
@@ -246,7 +246,8 @@ export function TablesSessionsPage() {
     {error && <Message severity="error" text={error} />}
     {notice && <Message severity="success" text={notice} />}
     {pendingOpen && <Message severity="warn" text="Hay una apertura con resultado ambiguo. Reintenta con la misma mesa y la misma clave antes de iniciar otra." />}
-    <DataTable value={tables} dataKey="id" size="small" stripedRows responsiveLayout="scroll" loading={loading} emptyMessage="No hay mesas registradas.">
+    <div className="admin-table-card">
+      <DataTable value={tables} dataKey="id" size="small" stripedRows responsiveLayout="scroll" loading={loading} emptyMessage="No hay mesas registradas.">
       <Column field="name" header="Mesa" />
       <Column header="Estado operativo" body={(table: CafeTable) =>
         <Tag value={statusLabels[table.status]} severity={
@@ -282,7 +283,8 @@ export function TablesSessionsPage() {
           )}
         </span>;
       }} />
-    </DataTable>
+      </DataTable>
+    </div>
     <Dialog
       visible={draft !== null}
       header={draft?.table ? `Editar ${draft.table.name}` : 'Nueva mesa'}

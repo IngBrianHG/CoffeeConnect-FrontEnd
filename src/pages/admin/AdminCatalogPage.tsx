@@ -140,7 +140,7 @@ export function AdminCatalogPage() {
     const category = categories.find(item => item.name === name && item.active);
     return category ? [category] : [];
   });
-  return <section className="flex flex-column gap-3">
+  return <section className="admin-module admin-catalog">
     <div className="flex align-items-center justify-content-between flex-wrap gap-2">
       <div><h2 className="mt-0 mb-1">Catálogo</h2><p className="mt-0 mb-0">Administra productos del catálogo fijo. Las categorías no se editan; el stock se gestiona desde Inventario.</p></div>
     </div>
@@ -152,6 +152,7 @@ export function AdminCatalogPage() {
             <div><h3 id="products-heading" className="mt-0 mb-1">Productos</h3><p className="mt-0 mb-0">Gestiona el catálogo y sus imágenes.</p></div>
             <Button label="Nuevo producto" icon="pi pi-plus" onClick={() => openProduct()} />
           </div>
+          <div className="admin-table-card">
           <DataTable value={products} dataKey="id" size="small" stripedRows responsiveLayout="scroll" loading={loading} emptyMessage="No hay productos.">
             <Column field="name" header="Nombre" />
             <Column header="Categoría" body={(row: AdminProduct) => categories.find(category => category.id === row.categoryId)?.name ?? 'No disponible'} />
@@ -162,6 +163,7 @@ export function AdminCatalogPage() {
               <Button icon={row.active ? 'pi pi-ban' : 'pi pi-check'} aria-label={row.active ? `Desactivar ${row.name}` : `Activar ${row.name}`} text onClick={() => void setProductActive(row, !row.active)} />
             </span>} />
           </DataTable>
+          </div>
         </section>
       </TabPanel>
       <TabPanel header="Categorías">
@@ -169,11 +171,13 @@ export function AdminCatalogPage() {
           <div className="flex align-items-center justify-content-between flex-wrap gap-2">
             <div><h3 id="categories-heading" className="mt-0 mb-1">Categorías</h3><p className="mt-0 mb-0">Catálogo fijo de solo lectura. Las categorías y sus iconos se definen en la aplicación.</p></div>
           </div>
+          <div className="admin-table-card">
           <DataTable value={fixedActiveCategories} dataKey="id" size="small" stripedRows responsiveLayout="scroll" loading={loading} emptyMessage="No hay categorías fijas activas.">
             <Column field="name" header="Nombre" />
             <Column field="description" header="Descripción" body={(row: AdminCategory) => row.description || '—'} />
             <Column header="Estado" body={(row: AdminCategory) => <Tag value={row.active ? 'Activa' : 'Inactiva'} severity={row.active ? 'success' : 'secondary'} />} />
           </DataTable>
+          </div>
         </section>
       </TabPanel>
     </TabView>
