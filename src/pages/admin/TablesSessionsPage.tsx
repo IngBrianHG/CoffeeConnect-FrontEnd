@@ -64,6 +64,11 @@ export function TablesSessionsPage() {
   const [pendingOpen, setPendingOpen] = useState<PendingOpen | null>(readPendingOpen);
   const [formError, setFormError] = useState('');
   const [accountSession, setAccountSession] = useState<TableSession | null>(null);
+  const [qrTable, setQrTable] = useState<CafeTable | null>(null);
+  const [qrDataUrl, setQrDataUrl] = useState('');
+  const [qrLoading, setQrLoading] = useState(false);
+  const [qrError, setQrError] = useState('');
+  const qrRequestId = useRef(0);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -106,6 +111,57 @@ export function TablesSessionsPage() {
   }, [pendingOpen]);
 
   const sessionsByTable = useMemo(() => new Map(sessions.map(item => [item.tableId, item])), [sessions]);
+
+  function getTableUrl(tableId: string) {
+    return new URL(`/user/${tableId}`, window.location.origin).toString();
+  }
+
+  function openTable(table: CafeTable) {
+    const newTab = window.open(getTableUrl(table.id), '_blank');
+    if (!newTab) {
+      setError('El navegador bloqueó la nueva pestaña. Permite ventanas emergentes e inténtalo de nuevo.');
+      return;
+    }
+    newTab.opener = null;
+  }
+
+  async function showQr(table: CafeTable) {
+    const requestId = ++qrRequestId.current;
+    setQrTable(table);
+    setQrDataUrl('');
+    setQrError('');
+    setQrLoading(true);
+    try {
+      const { default: QRCode } = await import('qrcode');
+      const dataUrl = await QRCode.toDataURL(getTableUrl(table.id), {
+        width: 320,
+        margin: 2,
+        errorCorrectionLevel: 'H',
+      });
+      if (qrRequestId.current === requestId) setQrDataUrl(dataUrl);
+    } catch {
+      if (qrRequestId.current === requestId) setQrError('No se pudo generar el código QR. Intenta de nuevo.');
+    } finally {
+      if (qrRequestId.current === requestId) setQrLoading(false);
+    }
+  }
+
+  function closeQr() {
+    qrRequestId.current++;
+    setQrTable(null);
+    setQrDataUrl('');
+    setQrError('');
+    setQrLoading(false);
+  }
+
+  function downloadQr() {
+    if (!qrDataUrl || !qrTable) return;
+    const safeName = qrTable.name.trim().replace(/[^a-z0-9_-]+/gi, '-').replace(/^-+|-+$/g, '') || qrTable.id;
+    const link = document.createElement('a');
+    link.href = qrDataUrl;
+    link.download = `qr-${safeName}.png`;
+    link.click();
+  }
 
   function openEditor(table?: CafeTable) {
     setDraft({ table, name: table?.name ?? '', active: table?.active ?? true });
@@ -264,6 +320,10 @@ export function TablesSessionsPage() {
         const busy = busyId === table.id || busyId === item?.id;
         return <span className="flex align-items-center gap-2 flex-wrap">
           {isAdmin && <Button icon="pi pi-pencil" text aria-label={`Editar ${table.name}`} onClick={() => openEditor(table)} disabled={busy} />}
+          <Button label="Abrir mesa" icon="pi pi-external-link" severity="secondary" outlined
+            onClick={() => openTable(table)} />
+          <Button label="QR" icon="pi pi-qrcode" severity="secondary" outlined
+            onClick={() => void showQr(table)} />
           {item
             ? <>
               <Button label="Ver cuenta" icon="pi pi-wallet" severity="secondary" outlined disabled={busy}
@@ -319,6 +379,31 @@ export function TablesSessionsPage() {
           {!draft.active && sessionsByTable.has(draft.table.id) && <small> Cierra la sesión antes de desactivar.</small>}
         </div>}
         {formError && <small id="table-form-error" role="alert">{formError}</small>}
+      </div>}
+    </Dialog>
+    <Dialog
+      visible={qrTable !== null}
+      header={qrTable ? `Código QR · ${qrTable.name}` : 'Código QR'}
+      modal
+      className="w-11 md:w-6 lg:w-4"
+      onHide={closeQr}
+      footer={<div className="flex justify-content-end gap-2">
+        <Button label="Cerrar" severity="secondary" outlined onClick={closeQr} />
+        <Button label="Descargar PNG" icon="pi pi-download" onClick={downloadQr}
+          disabled={!qrDataUrl || qrLoading} loading={qrLoading} />
+      </div>}
+    >
+      {qrTable && <div className="flex flex-column align-items-center gap-3 text-center">
+        <p className="m-0">Escanea este código para abrir la mesa desde un celular.</p>
+        {qrLoading && <Message severity="info" text="Generando código QR…" />}
+        {qrError && <Message severity="error" text={qrError} />}
+        {qrDataUrl && <img src={qrDataUrl} alt={`Código QR para abrir ${qrTable.name}`}
+          width={256} height={256} style={{ maxWidth: '100%', height: 'auto' }} />}
+        <a href={getTableUrl(qrTable.id)} target="_blank" rel="noopener noreferrer"
+          style={{ overflowWrap: 'anywhere' }}>
+          {getTableUrl(qrTable.id)}
+        </a>
+        {qrError && <Button label="Reintentar" icon="pi pi-refresh" text onClick={() => void showQr(qrTable)} />}
       </div>}
     </Dialog>
     <Dialog

@@ -165,6 +165,8 @@ Content-Type: application/json
 
 La función devuelve solo `{ "id": "...", "name": "..." }` para una mesa activa, o `null` si el UUID no existe o la mesa está inactiva. No revela `status`, sesiones, operador ni órdenes. La resolución pública no abre una sesión: abrirla es una acción del personal. Aunque `get_public_table` pueda resolver una mesa sin turno abierto, la creación de órdenes debe fallar en servidor hasta que el personal abra la sesión.
 
+En el panel de mesas, **Abrir mesa** abre en una pestaña nueva la URL absoluta `${window.location.origin}/user/${table.id}`. La acción **QR** muestra un PNG descargable que codifica esa misma URL y conserva el UUID de la mesa; el origen actual hace que producción use el dominio Vercel y desarrollo use el origen local. Ninguna de estas acciones abre una sesión.
+
 ## Errores y recuperación
 
 - `401`: renovar una vez mediante la sesión existente; si falla, cerrar sesión y volver al login.
@@ -189,6 +191,7 @@ La función devuelve solo `{ "id": "...", "name": "..." }` para una mesa activa,
 8. Tests con `fetch` simulado cubren transformación, validación, permisos, duplicados, conflicto de sesión, timeout/idempotencia y errores de red.
 9. Staging prueba RLS y RPC con anon, waiter, cashier y admin; la brecha de desactivación de mesa con sesión abierta queda cerrada antes de producción.
 10. Pasan `npm run lint`, `npm run build` y pruebas existentes.
+11. El panel abre la ruta del kiosco con el UUID de mesa en una pestaña nueva y permite descargar el QR PNG correspondiente a esa URL.
 
 ## Fuera de alcance
 

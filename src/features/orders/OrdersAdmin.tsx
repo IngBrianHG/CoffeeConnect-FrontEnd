@@ -15,6 +15,7 @@ import { createCafeTablesService, cafeTablesErrorMessage } from '../../services/
 import type { CafeOrder, CafeOrderItem, OrderStatus } from './model';
 
 const PAGE_SIZE = 200;
+const AUTO_REFRESH_INTERVAL = 10_000;
 const labels: Record<OrderStatus, string> = {
   pending: 'Pendiente', confirmed: 'Confirmada', preparing: 'Preparando',
   ready: 'Lista', served: 'Entregada', cancelled: 'Cancelada',
@@ -52,6 +53,7 @@ export function OrdersAdmin() {
   const [filteredHasMore, setFilteredHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const requestInFlight = useRef(false);
   const [actionOrderId, setActionOrderId] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -61,6 +63,8 @@ export function OrdersAdmin() {
   const [reason, setReason] = useState('');
 
   const load = useCallback(async (status: OrderStatus | 'all' = filterStatus) => {
+    if (requestInFlight.current) return;
+    requestInFlight.current = true;
     setLoading(true);
     setError('');
     try {
@@ -100,17 +104,25 @@ export function OrdersAdmin() {
       }
       setError(ordersErrorMessage(cause));
     } finally {
+      requestInFlight.current = false;
       setLoading(false);
     }
   }, [filterStatus, navigate, service, signOut]);
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      if (document.visibilityState === 'visible' && !loading && !busy) void load();
+    }, AUTO_REFRESH_INTERVAL);
+    return () => window.clearInterval(intervalId);
+  }, [busy, load, loading]);
 
   const hasMore = filterStatus === 'all'
     ? activeHasMore || terminalHasMore
     : filteredHasMore;
 
   async function loadMore() {
-    if (loading || busy || !hasMore) return;
+    if (requestInFlight.current || loading || busy || !hasMore) return;
+    requestInFlight.current = true;
     setLoading(true);
     setError('');
     try {
@@ -153,6 +165,7 @@ export function OrdersAdmin() {
       }
       setError(ordersErrorMessage(cause));
     } finally {
+      requestInFlight.current = false;
       setLoading(false);
     }
   }
@@ -251,12 +264,13 @@ export function OrdersAdmin() {
   const itemRows = useMemo(() => items.filter(item => item.orderId === selected?.id), [items, selected]);
 
   return <section className="admin-module orders-admin" aria-labelledby="orders-heading">
-    <div className="flex align-items-center justify-content-between flex-wrap gap-2">
+    <div className="orders-admin__header">
       <div><h2 id="orders-heading" className="mt-0 mb-1">Comandas</h2>
         <p className="mt-0 mb-0">Más antiguas primero · entregadas después · canceladas al final.</p></div>
-      <div className="flex align-items-center flex-wrap gap-2">
-        <label htmlFor="orders-status-filter">Estado</label>
+      <div className="orders-admin__controls">
+        <label className="orders-admin__filter-label" htmlFor="orders-status-filter">Estado</label>
         <Dropdown inputId="orders-status-filter" value={filterStatus}
+          aria-label="Filtrar comandas por estado"
           options={[
             { label: 'Todos', value: 'all' },
             ...Object.entries(labels).map(([value, label]) => ({ label, value })),
@@ -265,9 +279,10 @@ export function OrdersAdmin() {
             const nextStatus = event.value as OrderStatus | 'all';
             setFilterStatus(nextStatus);
           }}
-          optionLabel="label" optionValue="value" className="w-12rem" disabled={loading || busy} />
-        <Button label="Actualizar" icon="pi pi-refresh" severity="secondary" outlined
-          onClick={() => void load()} disabled={loading || busy} />
+          optionLabel="label" optionValue="value" className="orders-admin__filter" disabled={loading || busy} />
+        <Button icon="pi pi-refresh" aria-label="Actualizar comandas" tooltip="Actualizar comandas"
+          severity="secondary" outlined onClick={() => void load()} disabled={loading || busy}
+          loading={loading} className="orders-admin__refresh" />
       </div>
     </div>
     {error && <Message severity="error" text={error} />}

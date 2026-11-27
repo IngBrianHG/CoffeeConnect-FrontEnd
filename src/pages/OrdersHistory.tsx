@@ -1,7 +1,7 @@
 import { Suspense, lazy, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Swal from 'sweetalert2';
-import { ClipboardList, Coffee, Package, LogOut, RefreshCw, AlertTriangle, ChefHat, CheckCircle, Bell, Ban, Trash2, CreditCard, Clock, Calendar, DollarSign, Plus, X, Save, ShoppingCart, Search, BarChart3, Banknote, Smartphone, Hash, Pencil, Users, Gift, MessageSquareText, Boxes, UserRound } from 'lucide-react';
+import { ClipboardList, Coffee, Package, LogOut, RefreshCw, AlertTriangle, ChefHat, CheckCircle, Bell, Ban, Trash2, CreditCard, Clock, Calendar, DollarSign, Plus, X, Save, ShoppingCart, Search, BarChart3, Banknote, Smartphone, Hash, Pencil, Users, Gift, MessageSquareText, Boxes, UserRound, Menu as MenuIcon } from 'lucide-react';
 import {
   fetchOrders, fetchOrderById, updateOrderStatus,
   createProduct, deleteProduct, updateProduct, fetchReport
@@ -149,13 +149,55 @@ export function OrdersHistory() {
   }), [refreshSession]);
   const userRole = session?.profile.role ?? 'waiter';
   const [activeTab, setActiveTab] = useState<'orders' | 'products' | 'mesas' | 'pos' | 'reports' | 'users' | 'promos' | 'inventory' | 'profile'>(userRole === 'admin' ? 'orders' : 'pos');
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const sidebarRef = useRef<HTMLElement>(null);
+  const menuWasOpen = useRef(false);
   const [inventoryRecipeDirty, setInventoryRecipeDirty] = useState(false);
   const navigateTab = useCallback((nextTab: typeof activeTab) => {
     if (activeTab === 'inventory' && inventoryRecipeDirty
       && !window.confirm('Hay cambios sin guardar en la receta. ¿Salir del inventario y descartarlos?')) return;
     setInventoryRecipeDirty(false);
     setActiveTab(nextTab);
+    setMobileMenuOpen(false);
   }, [activeTab, inventoryRecipeDirty]);
+  useEffect(() => {
+    if (!mobileMenuOpen) {
+      if (menuWasOpen.current) {
+        menuWasOpen.current = false;
+        menuButtonRef.current?.focus();
+      }
+      return;
+    }
+    menuWasOpen.current = true;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const focusableElements = () => sidebarRef.current?.querySelectorAll<HTMLElement>('button:not([disabled])');
+    focusableElements()?.[0]?.focus();
+    const handleMenuKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setMobileMenuOpen(false);
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const elements = focusableElements();
+      if (!elements?.length) return;
+      const first = elements[0];
+      const last = elements[elements.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener('keydown', handleMenuKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleMenuKeyDown);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [mobileMenuOpen]);
   const profileName = session?.profile.displayName.trim() || session?.user.email || '';
 
   // — Pedidos —
@@ -746,13 +788,21 @@ export function OrdersHistory() {
     <div className="admin-layout">
 
       {/* SIDEBAR */}
-      <aside className="admin-sidebar">
+      <aside
+        ref={sidebarRef}
+        id="admin-navigation"
+        className={`admin-sidebar${mobileMenuOpen ? ' admin-sidebar--open' : ''}`}
+      >
         <div className="sidebar-header">
           <img src="/turron-logo.jpg" alt="Logo TURRÓN" />
           <div>
             <h2 style={{ fontSize: '1.25rem', color: '#111827', margin: 0, fontWeight: '800', lineHeight: 1.1 }}>TURRÓN</h2>
             <span style={{ fontSize: '0.75rem', color: '#E0247D', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '1.5px' }}>Pastelería</span>
           </div>
+          <button type="button" className="admin-sidebar__close" aria-label="Cerrar menú"
+            onClick={() => setMobileMenuOpen(false)}>
+            <X size={20} aria-hidden="true" />
+          </button>
         </div>
 
         <nav className="sidebar-nav" aria-label="Navegación administrativa">
@@ -858,16 +908,27 @@ export function OrdersHistory() {
           </button>
         </div>
       </aside>
+      {mobileMenuOpen && <button type="button" className="admin-sidebar-overlay" aria-hidden="true" tabIndex={-1}
+        onClick={() => setMobileMenuOpen(false)} />}
 
       {/* MAIN CONTENT */}
       <main className="admin-main">
         <header className="admin-topbar">
-          <h1 style={{ fontSize: '1.5rem', color: '#111827', margin: 0, fontWeight: '700' }}>
-            {activeTab === 'orders' ? 'Gestión de Pedidos' : activeTab === 'mesas' ? 'Mesas y Sesiones' : activeTab === 'products' ? 'Catálogo de Productos' : activeTab === 'pos' ? 'Punto de Venta' : activeTab === 'users' ? 'Gestión de Usuarios' : activeTab === 'promos' ? 'Promociones y Ofertas' : activeTab === 'inventory' ? 'Inventario de Ingredientes' : activeTab === 'profile' ? 'Mi perfil' : 'Reportes'}
-          </h1>
+          <div className="admin-topbar__title">
+            <button type="button" ref={menuButtonRef} className="admin-menu-toggle"
+              aria-label={mobileMenuOpen ? 'Cerrar menú' : 'Abrir menú'}
+              aria-expanded={mobileMenuOpen} aria-controls="admin-navigation"
+              onClick={() => setMobileMenuOpen(open => !open)}>
+              {mobileMenuOpen ? <X size={22} aria-hidden="true" /> : <MenuIcon size={22} aria-hidden="true" />}
+            </button>
+            <h1 style={{ fontSize: '1.5rem', color: '#111827', margin: 0, fontWeight: '700' }}>
+              {activeTab === 'orders' ? 'Gestión de Pedidos' : activeTab === 'mesas' ? 'Mesas y Sesiones' : activeTab === 'products' ? 'Catálogo de Productos' : activeTab === 'pos' ? 'Punto de Venta' : activeTab === 'users' ? 'Gestión de Usuarios' : activeTab === 'promos' ? 'Promociones y Ofertas' : activeTab === 'inventory' ? 'Inventario de Ingredientes' : activeTab === 'profile' ? 'Mi perfil' : 'Reportes'}
+            </h1>
+          </div>
           <div className="topbar-actions" style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
             <button
               type="button"
+              className="admin-topbar__profile"
               onClick={() => navigateTab('profile')}
               style={{ border: 0, background: 'transparent', textAlign: 'right', cursor: 'pointer', color: '#374151' }}
               aria-label="Abrir mi perfil"

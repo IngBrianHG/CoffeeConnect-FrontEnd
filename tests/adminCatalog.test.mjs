@@ -2,11 +2,26 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ApiError, createHttpClient } from '../src/services/http/client.ts';
 import { adminCatalogErrorMessage, createAdminCatalogService } from '../src/services/adminCatalog.ts';
+import { filterAdminProducts } from '../src/pages/admin/catalogSearch.ts';
 
 const catId = '11111111-1111-4111-8111-111111111111';
 const productId = '22222222-2222-4222-8222-222222222222';
 const rowCategory = { id: catId, name: 'Café', description: null, active: true };
 const rowProduct = { id: productId, category_id: catId, name: 'Latte', description: null, price: '4.50', image_url: null, active: true, stock: '2.000' };
+
+test('filters admin products by name, description, and category without accent sensitivity', () => {
+  const latte = { id: productId, categoryId: catId, name: 'Latte', description: 'Leche cremosa', price: 4.5, imageUrl: null, active: true };
+  const teaCategoryId = '44444444-4444-4444-8444-444444444444';
+  const tea = { ...latte, id: '33333333-3333-4333-8333-333333333333', categoryId: teaCategoryId, name: 'Té verde', description: null };
+  const products = [latte, tea];
+  const categories = [rowCategory, { ...rowCategory, id: teaCategoryId, name: 'Infusiones' }];
+
+  assert.deepEqual(filterAdminProducts(products, categories, ' café '), [latte]);
+  assert.deepEqual(filterAdminProducts(products, categories, 'CREMOSA'), [latte]);
+  assert.deepEqual(filterAdminProducts(products, categories, 'verde'), [tea]);
+  assert.deepEqual(filterAdminProducts(products, categories, 'infusiones'), [tea]);
+  assert.equal(filterAdminProducts(products, categories, '  '), products);
+});
 
 function service(handler) {
   const calls = [];
